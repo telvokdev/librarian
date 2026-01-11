@@ -15,6 +15,8 @@ export interface BriefEntry {
   preview: string;  // First 100 chars of insight - Claude reads full entry itself
   path: string;
   created: string;
+  hits: number;           // How many times this entry helped
+  last_hit: string | null; // When it last helped
 }
 
 export interface BriefResult {
@@ -108,10 +110,9 @@ Examples:
       allEntries = allEntries.filter(entry => matchesSearch(entry, searchTerm));
     }
 
-    // Sort by created date (most recent first)
-    allEntries.sort((a, b) => {
-      return new Date(b.created).getTime() - new Date(a.created).getTime();
-    });
+    // Sort by blended score: 60% recency + 40% hits
+    // Entries that helped before bubble up, but new entries still surface
+    allEntries = rankEntries(allEntries);
 
     const total = allEntries.length;
 
@@ -170,6 +171,8 @@ async function readEntry(filePath: string, libraryPath: string): Promise<BriefEn
       preview,
       path: path.relative(libraryPath, filePath),
       created: data.created || new Date().toISOString(),
+      hits: typeof data.hits === 'number' ? data.hits : 0,
+      last_hit: data.last_hit || null,
     };
   } catch {
     return null;
@@ -198,4 +201,42 @@ function matchesSearch(entry: BriefEntry, searchTerm: string): boolean {
   }
 
   return false;
+}
+
+// ============================================================================
+// Smart Ranking
+// ============================================================================
+
+const RECENCY_WEIGHT = 0.6;
+const HITS_WEIGHT = 0.4;
+const RECENCY_DECAY_DAYS = 30; // Entries older than this get minimal recency score
+
+function rankEntries(entries: BriefEntry[]): BriefEntry[] {
+  if (entries.length === 0) return entries;
+
+  const now = Date.now();
+
+  // Find max hits for normalization (avoid divide by zero)
+  const maxHits = Math.max(1, ...entries.map(e => e.hits));
+
+  // Calculate scores
+  const scored = entries.map(entry => {
+    // Recency score: 1.0 for today, decays over RECENCY_DECAY_DAYS
+    const ageMs = now - new Date(entry.created).getTime();
+    const ageDays = ageMs / (1000 * 60 * 60 * 24);
+    const recencyScore = Math.max(0, 1 - (ageDays / RECENCY_DECAY_DAYS));
+
+    // Hits score: normalized 0-1 against max hits in library
+    const hitsScore = entry.hits / maxHits;
+
+    // Blended score
+    const score = (RECENCY_WEIGHT * recencyScore) + (HITS_WEIGHT * hitsScore);
+
+    return { entry, score };
+  });
+
+  // Sort by score descending
+  scored.sort((a, b) => b.score - a.score);
+
+  return scored.map(s => s.entry);
 }

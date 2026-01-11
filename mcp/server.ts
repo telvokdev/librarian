@@ -8,6 +8,7 @@ import {
 import { briefTool } from './tools/brief.js';
 import { recordTool } from './tools/record.js';
 import { adoptTool } from './tools/adopt.js';
+import { markHitTool } from './tools/mark-hit.js';
 
 const server = new Server(
   {
@@ -40,6 +41,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         description: adoptTool.description,
         inputSchema: adoptTool.inputSchema,
       },
+      {
+        name: markHitTool.name,
+        description: markHitTool.description,
+        inputSchema: markHitTool.inputSchema,
+      },
     ],
   };
 });
@@ -60,6 +66,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         break;
       case 'adopt':
         result = await adoptTool.handler(args);
+        break;
+      case 'mark_hit':
+        result = await markHitTool.handler(args);
         break;
       default:
         throw new Error(`Unknown tool: ${name}`);

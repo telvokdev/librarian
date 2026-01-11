@@ -135,6 +135,8 @@ Rich:
     frontmatterLines.push(`created: "${created}"`);
     frontmatterLines.push(`updated: "${created}"`);
     frontmatterLines.push('source: "local"');
+    frontmatterLines.push('hits: 0');
+    frontmatterLines.push('last_hit: null');
     frontmatterLines.push('---');
 
     // Build body
