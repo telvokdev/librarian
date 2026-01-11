@@ -16,7 +16,8 @@ Librarian is a memory layer for AI agents. It captures what you learn togetherâ€
 ### Claude Code (Plugin - Recommended)
 
 ```bash
-/plugin marketplace add kogbuze/librarian
+/plugin marketplace add telvokdev/librarian
+/plugin install librarian@librarian
 ```
 
 This gives you the MCP tools + hooks that prompt Claude to use them.
@@ -24,7 +25,7 @@ This gives you the MCP tools + hooks that prompt Claude to use them.
 ### Claude Code (MCP Only)
 
 ```bash
-/mcp add @kamillion/librarian-mcp
+/mcp add @telvok/librarian-mcp
 ```
 
 Or add to your `.mcp.json`:
@@ -34,7 +35,7 @@ Or add to your `.mcp.json`:
   "mcpServers": {
     "librarian": {
       "command": "npx",
-      "args": ["@kamillion/librarian-mcp"]
+      "args": ["@telvok/librarian-mcp"]
     }
   }
 }
@@ -49,7 +50,7 @@ Add to your MCP settings:
   "mcpServers": {
     "librarian": {
       "command": "npx",
-      "args": ["@kamillion/librarian-mcp"]
+      "args": ["@telvok/librarian-mcp"]
     }
   }
 }
@@ -64,7 +65,7 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "librarian": {
       "command": "npx",
-      "args": ["@kamillion/librarian-mcp"]
+      "args": ["@telvok/librarian-mcp"]
     }
   }
 }
