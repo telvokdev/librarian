@@ -1,0 +1,27 @@
+{
+  "description": "Librarian hooks - remind Claude to brief before planning and record after work",
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'Before stopping: anything worth remembering? Call record() if so.'"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'Check brief() first if planning or deciding.'"
+          }
+        ]
+      }
+    ]
+  }
+}

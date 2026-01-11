@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "librarian": {
+      "command": "node",
+      "args": ["mcp/dist/server.js"]
+    }
+  }
+}

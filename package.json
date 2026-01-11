@@ -1,0 +1,29 @@
+{
+  "name": "@telvok/librarian",
+  "version": "1.0.0",
+  "description": "Knowledge capture for Claude Code and MCP clients",
+  "main": "mcp/dist/server.js",
+  "bin": {
+    "librarian": "./mcp/dist/server.js"
+  },
+  "scripts": {
+    "build": "cd mcp && npm install && npm run build",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "claude-code",
+    "plugin",
+    "knowledge-management",
+    "ai-memory"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Telvok/librarian"
+  },
+  "author": "Telvok",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}
