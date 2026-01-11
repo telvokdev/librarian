@@ -2,7 +2,7 @@
   "mcpServers": {
     "librarian": {
       "command": "npx",
-      "args": ["@kamillion/librarian-mcp"]
+      "args": ["@telvok/librarian-mcp"]
     }
   }
 }

@@ -1,6 +1,6 @@
 {
-  "name": "@kamillion/librarian-mcp",
-  "version": "1.0.1",
+  "name": "@telvok/librarian-mcp",
+  "version": "1.0.0",
   "description": "Knowledge capture MCP server - remember what you learn with AI",
   "type": "module",
   "main": "dist/server.js",
@@ -26,7 +26,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/kogbuze/librarian.git"
+    "url": "https://github.com/telvokdev/librarian.git"
   },
   "author": "Telvok",
   "license": "MIT",
