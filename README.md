@@ -114,10 +114,6 @@ Not worth recording:
 - Temporary hacks
 - Stuff that'll change next week
 
-## Coming Soon
-
-**Telvok Marketplace** - Browse, buy, and sell libraries at telvok.com
-
 ## License
 
 MIT
