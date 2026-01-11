@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'brief() - Before planning, deciding, or problem-solving, check what we already know.\n\nrecord() - What from this conversation would help us next time? The decisions, the gotchas, what worked, what didn\\'t, the reasoning - record() before it\\'s gone.'"
+            "command": "printf 'brief - Before planning, deciding, or problem-solving, check what we already know.\\n\\nrecord - What from this conversation would help us next time? The decisions, the gotchas, what worked, what did not, the reasoning - record before it is gone.'"
           }
         ]
       }
