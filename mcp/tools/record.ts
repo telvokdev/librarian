@@ -49,9 +49,11 @@ Quick:
 
 Rich:
 - record({
+    intent: "Setting up GitHub org for Telvok",
     insight: "GitHub org names are first-come-first-served regardless of domain ownership",
     context: "GitHub, npm, branding",
-    reasoning: "We owned telvok.com but someone squatted telvok org years ago"
+    reasoning: "We owned telvok.com but someone squatted telvok org years ago",
+    example: "Had to use telvokdev instead of telvok"
   })`,
 
   inputSchema: {
