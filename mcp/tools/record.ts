@@ -48,7 +48,16 @@ Rich:
     reasoning: "Their retry logic assumes failures, not slow responses",
     context: "payments",
     example: "if (await isDuplicate(event.id)) return;"
-  })`,
+  })
+
+WHEN TO CALL THIS:
+- The moment you think "that's useful" - capture it NOW
+- After solving something tricky - what made it work?
+- When you make a decision - why this over alternatives?
+- Before context dies - don't let insights evaporate
+
+Don't wait. Context compacts, memories disappear. If it's worth knowing
+tomorrow, record it today.`,
 
   inputSchema: {
     type: 'object' as const,
