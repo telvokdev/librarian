@@ -4,12 +4,14 @@ Knowledge capture for Claude Code and MCP clients.
 
 ## What This Is
 
-Librarian is a memory layer for AI agents. It captures what you learn together—patterns, decisions, gotchas—before context compacts and reasoning disappears.
+Your AI partner remembers nothing between sessions. Every insight, every hard-won solution, every "aha" moment—gone. Librarian fixes that.
+
+We build a library together. Not documentation—the other stuff. The gotcha that burned an hour. The pattern that finally clicked. Why we chose X over Y.
 
 **Three tools:**
-- `brief(query)` - Check what we know before planning/deciding
-- `record(insight, ...)` - Capture knowledge worth keeping
-- `adopt(path)` - Take ownership of imported entries
+- `brief(query)` - Check what we already know before diving in
+- `record(insight, ...)` - Capture knowledge worth keeping. Quality bar: "I wish we knew this yesterday"
+- `adopt(path)` - Make imported knowledge ours
 
 ## Install
 
@@ -92,6 +94,16 @@ record({
 adopt({ path: "imported/package-name/entry-name" })
 ```
 
+## What to Record
+
+✅ The solution that took 2 hours to find
+✅ The gotcha that'll bite again
+✅ Why we chose X over Y
+✅ What we were trying to accomplish
+
+❌ Generic docs (search exists)
+❌ Temporary hacks
+
 ## Library Structure
 
 ```
@@ -100,19 +112,6 @@ adopt({ path: "imported/package-name/entry-name" })
 ├── imported/        # Downloaded packages
 └── archived/        # Stale entries (still searchable)
 ```
-
-## The Quality Bar
-
-**"I wish we knew this yesterday"**
-
-Good entries:
-- "Stripe retries webhooks but doesn't dedupe - always check idempotency key"
-- "Clock skew between services - add 30s buffer to token validation"
-
-Not worth recording:
-- Generic docs (you can search those)
-- Temporary hacks
-- Stuff that'll change next week
 
 ## License
 
