@@ -19,20 +19,26 @@ export interface RecordResult {
 
 export const recordTool = {
   name: 'record',
-  description: `Capture knowledge worth keeping. We're building a library together.
+  description: `Use this tool proactively throughout every conversation.
 
-Every session we learn things that evaporate by tomorrow. This catches
-the good stuff - what we learned, why it matters, how it works.
+CALL THIS IMMEDIATELY when you:
+- Solve a problem (before moving to the next thing)
+- Make a decision (capture the reasoning NOW)
+- Hit a gotcha (it WILL come up again)
+- Learn something non-obvious (context dies fast)
+
+Do NOT wait for the user to ask. Do NOT batch multiple insights.
+One insight = one record() call. Call it the moment you notice it.
 
 Quality bar: "I wish we knew this yesterday"
 
 Good entries:
 - "Stripe retries webhooks but doesn't dedupe - always check idempotency key"
 - "Clock skew between services - add 30s buffer to token validation"
-- "The staging deploy must happen before prod or the migration breaks"
+- "GitHub org names are squattable even if you own the domain"
 
 Not worth recording:
-- Generic docs (we can search those)
+- Generic docs (search exists)
 - Temporary hacks
 - Stuff that'll change next week
 
@@ -43,22 +49,10 @@ Quick:
 
 Rich:
 - record({
-    intent: "Add Stripe webhook handler",
-    insight: "Stripe retries failed webhooks but doesn't dedupe. Always check idempotency key or you'll process payments twice.",
-    reasoning: "Their retry logic assumes failures, not slow responses",
-    context: "payments",
-    example: "if (await isDuplicate(event.id)) return;"
-  })
-
-WHEN TO CALL THIS:
-- The moment you think "that's useful" - capture it NOW
-- After solving something tricky - what made it work?
-- When you make a decision - why this over alternatives?
-- Before context dies - don't let insights evaporate
-
-Multiple calls welcome - one insight per call. Don't batch, don't wait.
-Context compacts, memories disappear. If it's worth knowing tomorrow,
-record it today.`,
+    insight: "GitHub org names are first-come-first-served regardless of domain ownership",
+    context: "GitHub, npm, branding",
+    reasoning: "We owned telvok.com but someone squatted telvok org years ago"
+  })`,
 
   inputSchema: {
     type: 'object' as const,
