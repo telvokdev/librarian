@@ -10,17 +10,17 @@ import { getLibraryPath, getLocalPath, getImportedPath } from '../library/storag
 
 export interface BriefEntry {
   title: string;
-  source: string;  // "local" or "imported/package-name"
+  intent: string | null;
+  context: string | null;
+  content: string;
   path: string;
-  topics: string[];
-  preview?: string;
+  created: string;
 }
 
 export interface BriefResult {
-  results: BriefEntry[];
-  local_topics: string[];
-  imported_packages: string[];
-  suggestion?: string;
+  entries: BriefEntry[];
+  total: number;
+  message: string;
 }
 
 // ============================================================================
@@ -29,136 +29,107 @@ export interface BriefResult {
 
 export const briefTool = {
   name: 'brief',
-  description: `Query the library for relevant entries on a topic.
+  description: `Check what we already know before diving in.
 
-Searches both local library and imported packages.
-Returns entries with source indicators (local vs imported).
-
-WHEN TO USE:
-- Before planning or entering plan mode
-- Before architectural decisions
-- When starting a task that might have relevant history
-- When the topic feels familiar (we might have done this before)
+We've solved problems before. Before thinking through a problem, making
+decisions, or planning - brief yourself on what past-us figured out.
+Searches intent, insight, context, and examples.
 
 Examples:
-- brief({ topic: "deployment" }) - Get deployment guidance
-- brief({ topic: "stripe" }) - Check what we know about Stripe
-- brief({ topic: "api" }) - See API-related learnings`,
+- brief({ query: "stripe webhooks" })
+- brief({ query: "auth token" })
+- brief({}) → returns recent entries`,
 
   inputSchema: {
     type: 'object' as const,
     properties: {
-      topic: {
+      query: {
         type: 'string',
-        description: 'What to query (e.g., "deployment", "stripe", "api")',
+        description: 'What are we working on? Searches our library. Leave empty to see recent entries.',
+      },
+      limit: {
+        type: 'number',
+        description: 'Max entries to return',
+        default: 5,
       },
     },
-    required: ['topic'],
+    required: [],
   },
 
   async handler(args: unknown): Promise<BriefResult> {
-    const { topic } = args as { topic?: string };
+    const { query, limit = 5 } = args as { query?: string; limit?: number };
 
     const libraryPath = getLibraryPath();
     const localPath = getLocalPath(libraryPath);
     const importedPath = getImportedPath(libraryPath);
 
-    const results: BriefEntry[] = [];
-    const localTopics: string[] = [];
-    const importedPackages: string[] = [];
+    let allEntries: BriefEntry[] = [];
 
-    // Scan local/ for topics
-    try {
-      const items = await fs.readdir(localPath, { withFileTypes: true });
-      for (const item of items) {
-        if (item.isDirectory()) {
-          localTopics.push(item.name);
-        }
-      }
-    } catch {
-      // Local path doesn't exist yet
-    }
-
-    // Scan imported/ for packages
-    try {
-      const items = await fs.readdir(importedPath, { withFileTypes: true });
-      for (const item of items) {
-        if (item.isDirectory()) {
-          importedPackages.push(item.name);
-        }
-      }
-    } catch {
-      // Imported path doesn't exist yet
-    }
-
-    // If no topic specified, return overview
-    if (!topic) {
-      return {
-        results: [],
-        local_topics: localTopics,
-        imported_packages: importedPackages,
-        suggestion: localTopics.length === 0 && importedPackages.length === 0
-          ? 'Library is empty. Use record() to save learnings.'
-          : `${localTopics.length} local topics, ${importedPackages.length} imported packages.`,
-      };
-    }
-
-    const searchTerm = topic.toLowerCase();
-
-    // Search local entries
+    // Read local entries
     try {
       const localFiles = await glob(path.join(localPath, '**/*.md'), { nodir: true });
       for (const filePath of localFiles) {
-        const entry = await readEntryForBrief(filePath);
-        if (entry && matchesSearch(entry, searchTerm)) {
-          results.push({
-            title: extractTitle(entry.content) || path.basename(filePath, '.md'),
-            source: 'local',
-            path: path.relative(libraryPath, filePath),
-            topics: entry.topics,
-            preview: entry.content.slice(0, 150).trim() + (entry.content.length > 150 ? '...' : ''),
-          });
+        const entry = await readEntry(filePath, libraryPath);
+        if (entry) {
+          allEntries.push(entry);
         }
       }
     } catch {
-      // No local files
+      // No local files yet
     }
 
-    // Search imported entries
+    // Read imported entries
     try {
       const importedFiles = await glob(path.join(importedPath, '**/*.md'), { nodir: true });
       for (const filePath of importedFiles) {
-        const entry = await readEntryForBrief(filePath);
-        if (entry && matchesSearch(entry, searchTerm)) {
-          // Extract package name from path
-          const relativePath = path.relative(importedPath, filePath);
-          const packageName = relativePath.split(path.sep)[0];
-
-          results.push({
-            title: extractTitle(entry.content) || path.basename(filePath, '.md'),
-            source: `imported/${packageName}`,
-            path: path.relative(libraryPath, filePath),
-            topics: entry.topics,
-            preview: entry.content.slice(0, 150).trim() + (entry.content.length > 150 ? '...' : ''),
-          });
+        const entry = await readEntry(filePath, libraryPath);
+        if (entry) {
+          allEntries.push(entry);
         }
       }
     } catch {
       // No imported files
     }
 
-    // Build response
-    let suggestion: string | undefined;
+    // If no entries at all
+    if (allEntries.length === 0) {
+      return {
+        entries: [],
+        total: 0,
+        message: 'No entries yet. Start recording!',
+      };
+    }
 
-    if (results.length === 0) {
-      suggestion = `No entries found for "${topic}". Use record() to save new learnings.`;
+    // Filter by query if provided
+    if (query) {
+      const searchTerm = query.toLowerCase();
+      allEntries = allEntries.filter(entry => matchesSearch(entry, searchTerm));
+    }
+
+    // Sort by created date (most recent first)
+    allEntries.sort((a, b) => {
+      return new Date(b.created).getTime() - new Date(a.created).getTime();
+    });
+
+    const total = allEntries.length;
+
+    // Apply limit
+    const entries = allEntries.slice(0, limit);
+
+    // Build message
+    let message: string;
+    if (query) {
+      message = total === 0
+        ? `No entries found for "${query}".`
+        : `Found ${total} ${total === 1 ? 'entry' : 'entries'} for "${query}".`;
+    } else {
+      message = `${total} ${total === 1 ? 'entry' : 'entries'} in library.`;
     }
 
     return {
-      results,
-      local_topics: localTopics,
-      imported_packages: importedPackages,
-      suggestion,
+      entries,
+      total,
+      message,
     };
   },
 };
@@ -167,50 +138,49 @@ Examples:
 // Helper Functions
 // ============================================================================
 
-interface ParsedEntry {
-  topics: string[];
-  content: string;
-}
-
-async function readEntryForBrief(filePath: string): Promise<ParsedEntry | null> {
+async function readEntry(filePath: string, libraryPath: string): Promise<BriefEntry | null> {
   try {
     const content = await fs.readFile(filePath, 'utf-8');
     const { data, content: body } = matter(content);
 
-    let topics: string[];
-    if (Array.isArray(data.topics)) {
-      topics = data.topics;
-    } else if (data.topic) {
-      topics = [data.topic];
-    } else {
-      // Infer topic from directory structure
-      const parts = filePath.split(path.sep);
-      const localIdx = parts.indexOf('local');
-      const importedIdx = parts.indexOf('imported');
-      const startIdx = Math.max(localIdx, importedIdx);
-
-      if (startIdx >= 0 && startIdx < parts.length - 1) {
-        topics = parts.slice(startIdx + 1, -1); // Exclude filename
+    // Extract title from H1 or filename
+    let title = data.title;
+    if (!title) {
+      const headingMatch = body.match(/^#\s+(.+)$/m);
+      if (headingMatch) {
+        title = headingMatch[1].trim();
       } else {
-        topics = ['general'];
+        title = path.basename(filePath, '.md').replace(/-/g, ' ');
       }
     }
 
     return {
-      topics,
+      title,
+      intent: data.intent || null,
+      context: data.context || null,
       content: body.trim(),
+      path: path.relative(libraryPath, filePath),
+      created: data.created || new Date().toISOString(),
     };
   } catch {
     return null;
   }
 }
 
-function matchesSearch(entry: ParsedEntry, searchTerm: string): boolean {
-  // Check topics
-  for (const topic of entry.topics) {
-    if (topic.toLowerCase().includes(searchTerm)) {
-      return true;
-    }
+function matchesSearch(entry: BriefEntry, searchTerm: string): boolean {
+  // Check title
+  if (entry.title.toLowerCase().includes(searchTerm)) {
+    return true;
+  }
+
+  // Check intent
+  if (entry.intent && entry.intent.toLowerCase().includes(searchTerm)) {
+    return true;
+  }
+
+  // Check context
+  if (entry.context && entry.context.toLowerCase().includes(searchTerm)) {
+    return true;
   }
 
   // Check content
@@ -219,20 +189,4 @@ function matchesSearch(entry: ParsedEntry, searchTerm: string): boolean {
   }
 
   return false;
-}
-
-function extractTitle(content: string): string | null {
-  // Look for first heading
-  const headingMatch = content.match(/^#\s+(.+)$/m);
-  if (headingMatch) {
-    return headingMatch[1].trim();
-  }
-
-  // Or first non-empty line
-  const firstLine = content.split('\n').find(line => line.trim().length > 0);
-  if (firstLine && firstLine.length < 100) {
-    return firstLine.trim();
-  }
-
-  return null;
 }

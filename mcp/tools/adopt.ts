@@ -1,4 +1,3 @@
-import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import matter from 'gray-matter';
@@ -10,9 +9,8 @@ import { getLibraryPath, getImportedPath, getLocalPath } from '../library/storag
 
 export interface AdoptResult {
   success: boolean;
-  message: string;
-  path?: string;
-  newId?: string;
+  from: string;
+  to: string;
 }
 
 // ============================================================================
@@ -21,157 +19,136 @@ export interface AdoptResult {
 
 export const adoptTool = {
   name: 'adopt',
-  description: `Adopt an entry from an imported library into your local library.
+  description: `Make imported knowledge ours.
 
-This copies the entry from imported/ to local/, giving you full ownership.
-- The entry gets a new ID and timestamp
-- You can now edit it freely
-- Original imported entry remains unchanged
+When an entry from an imported package proves useful, adopt it into our
+local library. It graduates from "their knowledge" to "our knowledge" -
+now we can edit and evolve it.
 
-Only works for entries in imported/ (not local/ or archived/).`,
+Examples:
+- adopt({ path: "imported/stripe-patterns/webhook-idempotency" })
+- adopt({ path: "imported/auth-patterns/token-refresh", title: "Our token refresh" })`,
 
   inputSchema: {
     type: 'object' as const,
     properties: {
-      entry_id: {
+      path: {
         type: 'string',
-        description: 'UUID of the imported entry to adopt',
-        format: 'uuid',
+        description: "Path to entry to adopt (e.g., 'imported/package-name/entry-name')",
       },
-      entry: {
+      title: {
         type: 'string',
-        description: 'Path to entry: "package/entry-name" or "imported/package/entry-name"',
-      },
-      library_name: {
-        type: 'string',
-        description: 'Name of the imported library (for reference)',
+        description: 'New title for adopted entry. Keeps original if not provided.',
       },
     },
-    // Neither required - one of entry_id or entry must be provided
+    required: ['path'],
   },
 
   async handler(args: unknown): Promise<AdoptResult> {
-    const { entry_id, entry, library_name } = args as {
-      entry_id?: string;
-      entry?: string;
-      library_name?: string;
+    const { path: entryPath, title: newTitle } = args as {
+      path: string;
+      title?: string;
     };
 
-    if (!entry_id && !entry) {
-      throw new Error('Either entry_id (UUID) or entry (path) is required');
+    if (!entryPath) {
+      throw new Error('path is required');
     }
 
     const libraryPath = getLibraryPath();
     const importedPath = getImportedPath(libraryPath);
     const localPath = getLocalPath(libraryPath);
 
-    let filePath: string;
-    let foundEntry: FoundEntry | null = null;
-    let packageName: string | undefined = library_name;
+    // Normalize path: strip "imported/" prefix if present, add .md if missing
+    let normalizedPath = entryPath;
+    if (normalizedPath.startsWith('imported/')) {
+      normalizedPath = normalizedPath.slice('imported/'.length);
+    }
+    if (!normalizedPath.endsWith('.md')) {
+      normalizedPath += '.md';
+    }
 
-    if (entry) {
-      // Path-based adoption
-      // Normalize path: strip "imported/" prefix if present, add .md if missing
-      let normalizedPath = entry;
-      if (normalizedPath.startsWith('imported/')) {
-        normalizedPath = normalizedPath.slice('imported/'.length);
-      }
-      if (!normalizedPath.endsWith('.md')) {
-        normalizedPath += '.md';
-      }
+    const sourcePath = path.join(importedPath, normalizedPath);
 
-      filePath = path.join(importedPath, normalizedPath);
+    // Check if source exists
+    try {
+      await fs.access(sourcePath);
+    } catch {
+      throw new Error(`Entry not found: ${entryPath}`);
+    }
 
-      // Extract package name from path (first segment)
-      const pathParts = normalizedPath.split('/');
-      if (pathParts.length >= 1) {
-        packageName = pathParts[0];
-      }
+    // Read source file
+    const content = await fs.readFile(sourcePath, 'utf-8');
+    const { data, content: body } = matter(content);
 
-      // Try to read the entry
-      try {
-        await fs.access(filePath);
-        foundEntry = await readEntryFromFile(filePath);
-      } catch {
-        return {
-          success: false,
-          message: `Entry not found at: ${entry}`,
-        };
-      }
-    } else {
-      // UUID-based adoption (legacy)
-      foundEntry = await findEntryById(importedPath, entry_id!);
-      if (!foundEntry) {
-        return {
-          success: false,
-          message: `Entry not found: ${entry_id}`,
-        };
-      }
-      filePath = foundEntry.filePath;
+    // Extract package name from path
+    const pathParts = normalizedPath.split('/');
+    const packageName = pathParts[0];
 
-      // Extract package name from path
-      const relativePath = path.relative(importedPath, filePath);
-      const pathParts = relativePath.split(path.sep);
-      if (pathParts.length >= 1) {
-        packageName = pathParts[0];
+    // Determine title
+    let title = newTitle;
+    if (!title) {
+      // Try to extract from frontmatter or H1
+      title = data.title;
+      if (!title) {
+        const headingMatch = body.match(/^#\s+(.+)$/m);
+        if (headingMatch) {
+          title = headingMatch[1].trim();
+        } else {
+          title = path.basename(sourcePath, '.md').replace(/-/g, ' ');
+        }
       }
     }
 
-    if (!foundEntry) {
-      return {
-        success: false,
-        message: 'Could not read entry',
-      };
-    }
+    // Generate slug for new filename
+    const slug = slugify(title);
+    const now = new Date().toISOString();
 
-    // Create new entry in local/
+    // Ensure local directory exists
     await fs.mkdir(localPath, { recursive: true });
 
-    // Generate new filename
-    const newId = uuidv4();
-    const originalFilename = path.basename(filePath);
-    let newPath = path.join(localPath, originalFilename);
-
-    // Handle existing file
+    // Handle filename collisions
+    let filename = `${slug}.md`;
+    let destPath = path.join(localPath, filename);
     let counter = 1;
-    while (true) {
-      try {
-        await fs.access(newPath);
-        const ext = path.extname(originalFilename);
-        const base = path.basename(originalFilename, ext);
-        newPath = path.join(localPath, `${base}-${counter}${ext}`);
-        counter++;
-      } catch {
-        break;
+    while (await fileExists(destPath)) {
+      filename = `${slug}-${counter}.md`;
+      destPath = path.join(localPath, filename);
+      counter++;
+    }
+
+    // Build new frontmatter
+    const newFrontmatter: Record<string, unknown> = {
+      ...data,
+      updated: now,
+      source: `adopted from ${packageName}`,
+    };
+
+    // Update title in frontmatter if changed
+    if (newTitle) {
+      newFrontmatter.title = newTitle;
+    }
+
+    // Update body if title changed
+    let newBody = body;
+    if (newTitle) {
+      // Replace first H1 if exists
+      const headingMatch = body.match(/^#\s+.+$/m);
+      if (headingMatch) {
+        newBody = body.replace(/^#\s+.+$/m, `# ${newTitle}`);
+      } else {
+        // Prepend title
+        newBody = `# ${newTitle}\n\n${body}`;
       }
     }
 
-    // Write adopted entry
-    const frontmatter: Record<string, unknown> = {
-      id: newId,
-      topics: foundEntry.entry.topics,
-      created: new Date().toISOString(),
-      source: 'imported',
-    };
-
-    if (packageName) {
-      frontmatter.imported_from = packageName;
-    }
-
-    if (entry_id || foundEntry.entry.id) {
-      frontmatter.adopted_from = entry_id || foundEntry.entry.id;
-    }
-
-    const fileContent = matter.stringify(foundEntry.entry.content, frontmatter);
-    await fs.writeFile(newPath, fileContent, 'utf-8');
-
-    const relativeFinalPath = path.relative(libraryPath, newPath);
+    // Write adopted file
+    const fileContent = matter.stringify(newBody, newFrontmatter);
+    await fs.writeFile(destPath, fileContent, 'utf-8');
 
     return {
       success: true,
-      message: `Adopted to ${relativeFinalPath}`,
-      path: relativeFinalPath,
-      newId,
+      from: path.relative(libraryPath, sourcePath),
+      to: path.relative(libraryPath, destPath),
     };
   },
 };
@@ -180,97 +157,19 @@ Only works for entries in imported/ (not local/ or archived/).`,
 // Helper Functions
 // ============================================================================
 
-interface FoundEntry {
-  entry: {
-    id: string;
-    topics: string[];
-    content: string;
-    created: string;
-  };
-  filePath: string;
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50);
 }
 
-async function readEntryFromFile(filePath: string): Promise<FoundEntry | null> {
+async function fileExists(filePath: string): Promise<boolean> {
   try {
-    const content = await fs.readFile(filePath, 'utf-8');
-    const { data, content: body } = matter(content);
-
-    let topics: string[];
-    if (Array.isArray(data.topics)) {
-      topics = data.topics;
-    } else if (data.topic) {
-      topics = [data.topic];
-    } else {
-      topics = ['general'];
-    }
-
-    return {
-      entry: {
-        id: data.id || uuidv4(),
-        topics,
-        content: body.trim(),
-        created: data.created || new Date().toISOString(),
-      },
-      filePath,
-    };
+    await fs.access(filePath);
+    return true;
   } catch {
-    return null;
+    return false;
   }
-}
-
-async function findEntryById(
-  importedPath: string,
-  entryId: string
-): Promise<FoundEntry | null> {
-  try {
-    await fs.access(importedPath);
-  } catch {
-    return null;
-  }
-
-  // Recursively search imported/ for entry with matching ID
-  const searchDir = async (dir: string): Promise<FoundEntry | null> => {
-    const items = await fs.readdir(dir, { withFileTypes: true });
-
-    for (const item of items) {
-      const itemPath = path.join(dir, item.name);
-
-      if (item.isDirectory()) {
-        const found = await searchDir(itemPath);
-        if (found) return found;
-      } else if (item.name.endsWith('.md')) {
-        try {
-          const content = await fs.readFile(itemPath, 'utf-8');
-          const { data, content: body } = matter(content);
-
-          if (data.id === entryId) {
-            let topics: string[];
-            if (Array.isArray(data.topics)) {
-              topics = data.topics;
-            } else if (data.topic) {
-              topics = [data.topic];
-            } else {
-              topics = ['general'];
-            }
-
-            return {
-              entry: {
-                id: data.id,
-                topics,
-                content: body.trim(),
-                created: data.created || new Date().toISOString(),
-              },
-              filePath: itemPath,
-            };
-          }
-        } catch {
-          // Skip unreadable files
-        }
-      }
-    }
-
-    return null;
-  };
-
-  return searchDir(importedPath);
 }

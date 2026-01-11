@@ -1,7 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import matter from 'gray-matter';
 import { getLibraryPath, getLocalPath } from '../library/storage.js';
 
 // ============================================================================
@@ -10,9 +9,8 @@ import { getLibraryPath, getLocalPath } from '../library/storage.js';
 
 export interface RecordResult {
   success: boolean;
-  message: string;
-  path?: string;
-  id?: string;
+  path: string;
+  title: string;
 }
 
 // ============================================================================
@@ -21,52 +19,80 @@ export interface RecordResult {
 
 export const recordTool = {
   name: 'record',
-  description: `Save a learning to the local library.
+  description: `Capture knowledge worth keeping. We're building a library together.
 
-Captures insights, decisions, patterns, and gotchas worth remembering.
-Entries go to .librarian/local/ and are searchable via brief().
+Every session we learn things that evaporate by tomorrow. This catches
+the good stuff - what we learned, why it matters, how it works.
 
-Quality bar: Would a senior dev say this to a new hire?
-- YES: "Don't trust Stripe's retry logic, implement idempotency yourself"
-- NO: "Respond in a friendly way" (too generic)
+Quality bar: "I wish we knew this yesterday"
+
+Good entries:
+- "Stripe retries webhooks but doesn't dedupe - always check idempotency key"
+- "Clock skew between services - add 30s buffer to token validation"
+- "The staging deploy must happen before prod or the migration breaks"
+
+Not worth recording:
+- Generic docs (we can search those)
+- Temporary hacks
+- Stuff that'll change next week
 
 Examples:
-- record({ topics: ["webhooks", "stripe"], content: "Always add idempotency..." })
-- record({ topics: "deployment", content: "Staging-first on Fridays..." })`,
+
+Quick:
+- record({ insight: "Stripe webhooks need idempotency checks" })
+
+Rich:
+- record({
+    intent: "Add Stripe webhook handler",
+    insight: "Stripe retries failed webhooks but doesn't dedupe. Always check idempotency key or you'll process payments twice.",
+    reasoning: "Their retry logic assumes failures, not slow responses",
+    context: "payments",
+    example: "if (await isDuplicate(event.id)) return;"
+  })`,
 
   inputSchema: {
     type: 'object' as const,
     properties: {
-      topics: {
-        oneOf: [
-          { type: 'string', description: 'Single topic tag' },
-          { type: 'array', items: { type: 'string' }, description: 'Array of topic tags' },
-        ],
-        description: 'Topic tags - string or array (e.g., "deployment" or ["stripe", "webhooks"])',
-      },
-      content: {
+      insight: {
         type: 'string',
-        description: 'The reasoning/insight to record',
+        description: 'What did we learn? The knowledge worth keeping.',
+      },
+      intent: {
+        type: 'string',
+        description: 'What were we trying to accomplish?',
+      },
+      reasoning: {
+        type: 'string',
+        description: 'Why does this work? Why this over alternatives?',
+      },
+      context: {
+        type: 'string',
+        description: "Topic, area, or when this applies (e.g., 'auth', 'payments', 'only on Windows')",
+      },
+      example: {
+        type: 'string',
+        description: 'Code snippet or concrete illustration',
+      },
+      title: {
+        type: 'string',
+        description: 'Entry title. Auto-generated from insight if not provided.',
       },
     },
-    required: ['topics', 'content'],
+    required: ['insight'],
   },
 
   async handler(args: unknown): Promise<RecordResult> {
-    const { topics: rawTopics, content } = args as {
-      topics: string | string[];
-      content: string;
+    const { insight, intent, reasoning, context, example, title: providedTitle } = args as {
+      insight: string;
+      intent?: string;
+      reasoning?: string;
+      context?: string;
+      example?: string;
+      title?: string;
     };
 
-    if (!rawTopics || !content) {
-      throw new Error('Both topics and content are required');
-    }
-
-    // Normalize topics to array
-    const topics = Array.isArray(rawTopics) ? rawTopics : [rawTopics];
-
-    if (topics.length === 0) {
-      throw new Error('At least one topic is required');
+    if (!insight) {
+      throw new Error('insight is required');
     }
 
     const libraryPath = getLibraryPath();
@@ -75,51 +101,117 @@ Examples:
     // Ensure local directory exists
     await fs.mkdir(localPath, { recursive: true });
 
-    // Generate entry
-    const id = uuidv4();
+    // Generate title
+    const title = providedTitle || generateTitle(insight, intent);
+
+    // Generate slug for filename
+    const slug = slugify(title);
     const created = new Date().toISOString();
 
-    // Create filename from first topic and timestamp
-    const slug = topics[0]
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '');
-    const timestamp = created.slice(0, 10); // YYYY-MM-DD
-    let filename = `${slug}-${timestamp}.md`;
-
-    // Handle collisions
+    // Handle filename collisions
+    let filename = `${slug}.md`;
     let filePath = path.join(localPath, filename);
     let counter = 1;
-    while (true) {
-      try {
-        await fs.access(filePath);
-        filename = `${slug}-${timestamp}-${counter}.md`;
-        filePath = path.join(localPath, filename);
-        counter++;
-      } catch {
-        break;
-      }
+    while (await fileExists(filePath)) {
+      filename = `${slug}-${counter}.md`;
+      filePath = path.join(localPath, filename);
+      counter++;
     }
 
     // Build frontmatter
-    const frontmatter: Record<string, unknown> = {
-      id,
-      topics,
-      created,
-      source: 'manual',
-    };
+    const frontmatterLines: string[] = ['---'];
+    if (intent) {
+      frontmatterLines.push(`intent: "${escapeYaml(intent)}"`);
+    }
+    if (context) {
+      frontmatterLines.push(`context: "${escapeYaml(context)}"`);
+    }
+    frontmatterLines.push(`created: "${created}"`);
+    frontmatterLines.push(`updated: "${created}"`);
+    frontmatterLines.push('source: "local"');
+    frontmatterLines.push('---');
 
-    // Write file
-    const fileContent = matter.stringify(content, frontmatter);
+    // Build body
+    const bodyLines: string[] = [];
+    bodyLines.push(`# ${title}`);
+    bodyLines.push('');
+    bodyLines.push(insight);
+
+    if (reasoning) {
+      bodyLines.push('');
+      bodyLines.push('## Reasoning');
+      bodyLines.push('');
+      bodyLines.push(reasoning);
+    }
+
+    if (example) {
+      bodyLines.push('');
+      bodyLines.push('## Example');
+      bodyLines.push('');
+      // Detect if it looks like code
+      if (example.includes('\n') || example.includes('{') || example.includes('(')) {
+        bodyLines.push('```');
+        bodyLines.push(example);
+        bodyLines.push('```');
+      } else {
+        bodyLines.push('```');
+        bodyLines.push(example);
+        bodyLines.push('```');
+      }
+    }
+
+    // Combine and write
+    const fileContent = frontmatterLines.join('\n') + '\n\n' + bodyLines.join('\n') + '\n';
     await fs.writeFile(filePath, fileContent, 'utf-8');
 
     const relativePath = path.relative(libraryPath, filePath);
 
     return {
       success: true,
-      message: `Recorded to ${relativePath}`,
       path: relativePath,
-      id,
+      title,
     };
   },
 };
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+function generateTitle(insight: string, intent?: string): string {
+  // Try to extract from first sentence of insight
+  const firstSentence = insight.split(/[.!?\n]/)[0].trim();
+
+  if (firstSentence.length <= 60) {
+    return firstSentence;
+  }
+
+  // If insight is too long, try intent
+  if (intent && intent.length <= 60) {
+    return intent;
+  }
+
+  // Truncate insight
+  return firstSentence.slice(0, 57) + '...';
+}
+
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50);
+}
+
+function escapeYaml(text: string): string {
+  return text.replace(/"/g, '\\"').replace(/\n/g, ' ');
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
