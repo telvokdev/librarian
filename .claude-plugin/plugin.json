@@ -2,5 +2,7 @@
   "name": "librarian",
   "version": "1.0.0",
   "description": "Knowledge capture for Claude Code",
-  "author": "telvok"
+  "author": {
+    "name": "Telvok"
+  }
 }

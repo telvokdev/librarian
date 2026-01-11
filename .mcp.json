@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "librarian": {
-      "command": "node",
-      "args": ["mcp/dist/server.js"]
+      "command": "npx",
+      "args": ["@kamillion/librarian-mcp"]
     }
   }
 }

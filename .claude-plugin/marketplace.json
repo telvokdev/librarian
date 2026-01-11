@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "librarian",
-      "source": ".",
+      "source": "./",
       "description": "Knowledge capture for Claude Code - remember what we learn together",
       "version": "1.0.0"
     }

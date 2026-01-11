@@ -56,8 +56,9 @@ WHEN TO CALL THIS:
 - When you make a decision - why this over alternatives?
 - Before context dies - don't let insights evaporate
 
-Don't wait. Context compacts, memories disappear. If it's worth knowing
-tomorrow, record it today.`,
+Multiple calls welcome - one insight per call. Don't batch, don't wait.
+Context compacts, memories disappear. If it's worth knowing tomorrow,
+record it today.`,
 
   inputSchema: {
     type: 'object' as const,

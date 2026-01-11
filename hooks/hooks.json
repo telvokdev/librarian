@@ -1,24 +1,13 @@
 {
-  "description": "Librarian hooks - remind Claude to brief before planning and record after work",
+  "description": "Librarian hooks - brief before planning, record the journey",
   "hooks": {
-    "Stop": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo 'Before stopping: anything worth remembering? Call record() if so.'"
-          }
-        ]
-      }
-    ],
     "UserPromptSubmit": [
       {
         "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'Check brief() first if planning or deciding.'"
+            "command": "echo 'brief() - Before planning, deciding, or problem-solving, check what we already know.\n\nrecord() - What from this conversation would help us next time? The decisions, the gotchas, what worked, what didn\\'t, the reasoning - record() before it\\'s gone.'"
           }
         ]
       }
