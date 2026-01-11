@@ -7,33 +7,40 @@ Knowledge capture for Claude Code and MCP clients.
 Librarian is a memory layer for AI agents. It captures what you learn together—patterns, decisions, gotchas—before context compacts and reasoning disappears.
 
 **Three tools:**
-- `brief(topic)` - Query the library before planning
-- `record(topics, content)` - Save learnings
-- `adopt(entry)` - Copy imported entries to local
+- `brief(query)` - Check what we know before planning/deciding
+- `record(insight, ...)` - Capture knowledge worth keeping
+- `adopt(path)` - Take ownership of imported entries
 
 ## Install
 
-### Claude Code
+### Claude Code (Plugin - Recommended)
 
 ```bash
-# Clone to your project
-git clone https://github.com/Telvok/librarian.git .librarian-plugin
+/plugin marketplace add kogbuze/librarian
+```
 
-# Build
-cd .librarian-plugin && npm run build && cd ..
+This gives you the MCP tools + hooks that prompt Claude to use them.
 
-# Add to .mcp.json
+### Claude Code (MCP Only)
+
+```bash
+/mcp add @kamillion/librarian-mcp
+```
+
+Or add to your `.mcp.json`:
+
+```json
 {
   "mcpServers": {
     "librarian": {
-      "command": "node",
-      "args": [".librarian-plugin/mcp/dist/server.js"]
+      "command": "npx",
+      "args": ["@kamillion/librarian-mcp"]
     }
   }
 }
 ```
 
-### Cursor / Windsurf
+### Cursor / Windsurf / Other MCP Clients
 
 Add to your MCP settings:
 
@@ -41,8 +48,8 @@ Add to your MCP settings:
 {
   "mcpServers": {
     "librarian": {
-      "command": "node",
-      "args": ["/path/to/librarian/mcp/dist/server.js"]
+      "command": "npx",
+      "args": ["@kamillion/librarian-mcp"]
     }
   }
 }
@@ -56,8 +63,8 @@ Add to `claude_desktop_config.json`:
 {
   "mcpServers": {
     "librarian": {
-      "command": "node",
-      "args": ["/path/to/librarian/mcp/dist/server.js"]
+      "command": "npx",
+      "args": ["@kamillion/librarian-mcp"]
     }
   }
 }
@@ -67,20 +74,21 @@ Add to `claude_desktop_config.json`:
 
 ### Before Planning
 ```
-brief({ topic: "deployment" })
+brief({ query: "stripe webhooks" })
 ```
 
 ### After Learning Something
 ```
 record({
-  topics: ["webhooks", "stripe"],
-  content: "Always add idempotency with Redis SETNX. Event IDs as keys, 24h TTL."
+  insight: "Stripe retries webhooks but doesn't dedupe - always check idempotency key",
+  context: "payments",
+  reasoning: "Their retry logic assumes failures, not slow responses"
 })
 ```
 
 ### Adopting Imported Knowledge
 ```
-adopt({ entry: "package-name/entry-name" })
+adopt({ path: "imported/package-name/entry-name" })
 ```
 
 ## Library Structure
@@ -94,30 +102,16 @@ adopt({ entry: "package-name/entry-name" })
 
 ## The Quality Bar
 
-**The Senior Dev Test:** Would a senior dev say this to a new hire on their first day?
+**"I wish we knew this yesterday"**
 
-✅ "When working on webhooks, always add idempotency. We learned that the hard way."
+Good entries:
+- "Stripe retries webhooks but doesn't dedupe - always check idempotency key"
+- "Clock skew between services - add 30s buffer to token validation"
 
-❌ "Redis is a key-value store." (Just a fact, not wisdom.)
-
-## Hooks (Optional)
-
-Add to `.claude/settings.json` for reminders:
-
-```json
-{
-  "hooks": {
-    "Stop": [{
-      "matcher": "*",
-      "hooks": [{"type": "command", "command": "echo 'Anything worth remembering? Call record() if so.'"}]
-    }],
-    "UserPromptSubmit": [{
-      "matcher": "*", 
-      "hooks": [{"type": "command", "command": "echo 'Check brief() first if planning.'"}]
-    }]
-  }
-}
-```
+Not worth recording:
+- Generic docs (you can search those)
+- Temporary hacks
+- Stuff that'll change next week
 
 ## Coming Soon
 
