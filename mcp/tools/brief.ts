@@ -12,7 +12,7 @@ export interface BriefEntry {
   title: string;
   intent: string | null;
   context: string | null;
-  content: string;
+  preview: string;  // First 100 chars of insight - Claude reads full entry itself
   path: string;
   created: string;
 }
@@ -21,6 +21,7 @@ export interface BriefResult {
   entries: BriefEntry[];
   total: number;
   message: string;
+  libraryPath: string;  // So Claude knows where to read full entries
 }
 
 // ============================================================================
@@ -97,6 +98,7 @@ Examples:
         entries: [],
         total: 0,
         message: 'No entries yet. Start recording!',
+        libraryPath: localPath,
       };
     }
 
@@ -130,6 +132,7 @@ Examples:
       entries,
       total,
       message,
+      libraryPath: localPath,
     };
   },
 };
@@ -154,11 +157,17 @@ async function readEntry(filePath: string, libraryPath: string): Promise<BriefEn
       }
     }
 
+    // Extract preview - first 100 chars of body content
+    const bodyText = body.trim();
+    const preview = bodyText.length > 100
+      ? bodyText.slice(0, 100) + '...'
+      : bodyText;
+
     return {
       title,
       intent: data.intent || null,
       context: data.context || null,
-      content: body.trim(),
+      preview,
       path: path.relative(libraryPath, filePath),
       created: data.created || new Date().toISOString(),
     };
@@ -183,8 +192,8 @@ function matchesSearch(entry: BriefEntry, searchTerm: string): boolean {
     return true;
   }
 
-  // Check content
-  if (entry.content.toLowerCase().includes(searchTerm)) {
+  // Check preview (basic substring match - Claude does semantic filtering)
+  if (entry.preview.toLowerCase().includes(searchTerm)) {
     return true;
   }
 
