@@ -1,12 +1,35 @@
 {
-  "name": "librarian-mcp",
+  "name": "@kogbuze/librarian-mcp",
   "version": "1.0.0",
+  "description": "Knowledge capture MCP server - remember what you learn with AI",
   "type": "module",
   "main": "dist/server.js",
+  "bin": {
+    "librarian-mcp": "dist/server.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm run build"
   },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "ai",
+    "knowledge-management",
+    "memory"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kogbuze/librarian.git"
+  },
+  "author": "Telvok",
+  "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "glob": "^11.0.0",
