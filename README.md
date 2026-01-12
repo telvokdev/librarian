@@ -28,7 +28,7 @@ This gives you the MCP tools + hooks that prompt Claude to use them.
 ### Claude Code (MCP Only)
 
 ```bash
-/mcp add @telvok/librarian-mcp
+claude mcp add librarian -- npx @telvok/librarian-mcp
 ```
 
 Or add to your `.mcp.json`:
