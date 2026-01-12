@@ -20,7 +20,7 @@ We build a library together. Not documentation—the other stuff. The gotcha tha
 
 ```bash
 /plugin marketplace add telvokdev/librarian
-/plugin install librarian@librarian
+/plugin install librarian@telvokdev-librarian
 ```
 
 This gives you the MCP tools + hooks that prompt Claude to use them.
