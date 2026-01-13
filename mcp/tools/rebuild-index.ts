@@ -31,6 +31,8 @@ export const rebuildIndexTool = {
   name: 'rebuild_index',
   description: `Rebuild the semantic search index for all library entries.
 
+Use this when semantic search returns poor results, when user reports search seems broken, or after manually adding entries outside the normal workflow.
+
 Use this after:
 - Upgrading to v1.2.0 (existing entries need embeddings)
 - Importing memories from other tools

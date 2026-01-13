@@ -25,6 +25,8 @@ export const importMemoriesTool = {
   name: 'import_memories',
   description: `Import memories from other AI tools into Librarian.
 
+Use this when you see memory files from other AI tools (Cursor .cursor-memory/, Anthropic ~/.aim/, mcp-memory-service .db files, Obsidian vaults) or when user mentions having knowledge in other tools. Import them so past knowledge becomes searchable.
+
 Supported formats:
 - jsonl: Anthropic MCP Memory, mcp-knowledge-graph (.jsonl files)
 - markdown: Basic Memory, Obsidian, any .md files
