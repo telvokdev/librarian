@@ -163,7 +163,7 @@ import_memories({ format: "sqlite", path: "~/memory.db", source_name: "sqlite-me
 
 | Format | Sources | File Type |
 |--------|---------|-----------|
-| `jsonl` | Anthropic MCP Memory, mcp-knowledge-graph | `.jsonl` files with entities/relations |
+| `jsonl` | Anthropic MCP Memory, mcp-knowledge-graph, any memory tool | `.jsonl` with content/text/observations fields |
 | `markdown` | Obsidian, Basic Memory MCP, any notes | `.md` files with optional YAML frontmatter |
 | `cursor` | Cursor Memory Bank | `.cursor-memory/` folder |
 | `json` | Simple memory servers, knowledge stores | `.json` arrays or objects |
@@ -233,11 +233,11 @@ This balances discovery of new knowledge with survival of the useful.
 
 ## The Pitch
 
-Other AI memory tools are silos. They write to their own format, locked in their own ecosystem.
+Other AI memory tools are silos. They write to their own format, locked in their own ecosystem. Switch tools and your knowledge stays behind.
 
 **Librarian reads everything.**
 
-Import from anywhere. Search semantically. One library to rule them all.
+Cursor memories. Obsidian notes. Anthropic MCP Memory. Random JSON exports. SQLite databases. Whatever you've got - import it, search it, use it. One unified library that grows with you, not against you.
 
 **Your AI finally remembers.**
 
