@@ -1,10 +1,9 @@
 {
   "name": "librarian",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "description": "Knowledge capture for Claude Code",
   "author": {
     "name": "Telvok"
   },
-  "hooks": "./hooks/hooks.json",
   "skills": "./skills/"
 }
