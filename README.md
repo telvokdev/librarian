@@ -28,8 +28,14 @@ It doesn't work. It was never going to work.
 
 ## Install
 
-### Claude Code (Recommended)
+### Claude Code
 
+**Option 1: MCP Add (simplest)**
+```bash
+claude mcp add librarian -- npx @telvok/librarian-mcp
+```
+
+**Option 2: Plugin Marketplace**
 ```bash
 /plugin marketplace add telvokdev/librarian
 /plugin install librarian@librarian
