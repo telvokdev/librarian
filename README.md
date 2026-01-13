@@ -120,6 +120,25 @@ adopt({ path: "imported/package-name/entry-name" })
 └── archived/        # Stale entries (still searchable)
 ```
 
+## Semantic Search
+
+**New in v1.2.0:** Librarian uses local AI embeddings for semantic search. Query with natural language and find entries even when keywords don't match.
+
+```
+# Entry saved as: "Stripe webhooks need idempotency checks"
+# Query finds it with:
+brief({ query: "how to handle duplicate payment events" })
+```
+
+**How it works:**
+- On `record()` → generates embeddings using local `all-MiniLM-L6-v2` model
+- On `brief(query)` → embeds query → finds semantically similar entries
+- Falls back to keyword search if embeddings unavailable
+
+**First run:** Downloads ~30MB model (cached in `.librarian/models/`)
+
+**Fully offline:** No API calls, your data stays local.
+
 ## Smart Ranking
 
 `brief()` ranks entries using a blended score:

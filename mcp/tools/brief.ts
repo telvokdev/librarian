@@ -3,6 +3,7 @@ import * as path from 'path';
 import matter from 'gray-matter';
 import { glob } from 'glob';
 import { getLibraryPath, getLocalPath, getImportedPath } from '../library/storage.js';
+import { loadIndex, semanticSearch, isIndexStale, type SemanticMatch } from '../library/vector-index.js';
 
 // ============================================================================
 // Types
@@ -67,7 +68,56 @@ Examples:
     const importedPath = getImportedPath(libraryPath);
 
     let allEntries: BriefEntry[] = [];
+    let useSemanticSearch = false;
+    let semanticMatches: SemanticMatch[] = [];
 
+    // Try semantic search if query is provided
+    if (query) {
+      try {
+        const index = await loadIndex();
+
+        // Only use semantic search if index has entries and isn't stale
+        if (index.entries.length > 0 && !isIndexStale(index)) {
+          semanticMatches = await semanticSearch(index, query, limit);
+          useSemanticSearch = semanticMatches.length > 0;
+        }
+      } catch {
+        // Semantic search unavailable, fall back to keyword search
+        useSemanticSearch = false;
+      }
+    }
+
+    if (useSemanticSearch && semanticMatches.length > 0) {
+      // Load only the entries that matched semantically
+      const matchedPaths = new Set(semanticMatches.map(m => m.path));
+
+      for (const match of semanticMatches) {
+        const fullPath = path.join(libraryPath, match.path);
+        const entry = await readEntry(fullPath, libraryPath);
+        if (entry) {
+          allEntries.push(entry);
+        }
+      }
+
+      // Sort by semantic similarity (order preserved from semanticSearch)
+      // Re-order allEntries to match semanticMatches order
+      const pathToEntry = new Map(allEntries.map(e => [e.path, e]));
+      allEntries = semanticMatches
+        .map(m => pathToEntry.get(m.path))
+        .filter((e): e is BriefEntry => e !== undefined);
+
+      const total = allEntries.length;
+      const entries = allEntries.slice(0, limit);
+
+      return {
+        entries,
+        total,
+        message: `Found ${total} ${total === 1 ? 'entry' : 'entries'} for "${query}" (semantic search).`,
+        libraryPath: localPath,
+      };
+    }
+
+    // Fall back to keyword search
     // Read local entries
     try {
       const localFiles = await glob(path.join(localPath, '**/*.md'), { nodir: true });

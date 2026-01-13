@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { getLibraryPath, getLocalPath } from '../library/storage.js';
+import { loadIndex, saveIndex, addToIndex } from '../library/vector-index.js';
 
 // ============================================================================
 // Types
@@ -173,6 +174,27 @@ Rich:
     await fs.writeFile(filePath, fileContent, 'utf-8');
 
     const relativePath = path.relative(libraryPath, filePath);
+
+    // Add to vector index for semantic search
+    try {
+      const index = await loadIndex();
+      // Combine all text for embedding
+      const fullContent = [
+        title,
+        intent || '',
+        insight,
+        reasoning || '',
+        example || '',
+        context || '',
+      ].filter(Boolean).join('\n\n');
+
+      await addToIndex(index, relativePath, title, fullContent);
+      await saveIndex(index);
+    } catch (embeddingError) {
+      // Don't fail the record operation if embedding fails
+      // Entry is still saved and searchable via keywords
+      console.error('Failed to add embedding:', embeddingError);
+    }
 
     return {
       success: true,
