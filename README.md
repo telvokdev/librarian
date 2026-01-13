@@ -56,6 +56,12 @@ Add to your MCP settings:
 }
 ```
 
+### Global Install (optional)
+
+```bash
+npm i -g @telvok/librarian-mcp
+```
+
 ---
 
 ## API
