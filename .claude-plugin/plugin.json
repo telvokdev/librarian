@@ -4,5 +4,7 @@
   "description": "Knowledge capture for Claude Code",
   "author": {
     "name": "Telvok"
-  }
+  },
+  "hooks": "./hooks/hooks.json",
+  "skills": "./skills/"
 }

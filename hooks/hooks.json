@@ -1,5 +1,4 @@
 {
-  "description": "Librarian hooks - brief before planning, record the journey",
   "hooks": {
     "UserPromptSubmit": [
       {
@@ -7,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "printf 'brief - Before planning, deciding, or problem-solving, check what we already know.\\n\\nrecord - What from this conversation would help us next time? The decisions, the gotchas, what worked, what did not, the reasoning - record before it is gone.'"
+            "command": "printf 'Librarian active.\n\nBRIEF: Before thinking through a problem, making decisions, or planning - check what we already know. Also use when an issue comes up again or feels like something we solved before. Call brief to search past knowledge. Use brief without a query for recent entries.\n\nRECORD: Call when we:\n- Solve a problem before moving to the next thing\n- Make a decision and need to capture the reasoning NOW\n- Hit a gotcha or mistake that WILL come up again\n- Learn something non-obvious since context dies fast\nDo not wait to be asked. Do not batch insights - one insight = one record call. Multiple recordings in one response is ok. Quality bar: I wish we knew this yesterday\n\nMARK_HIT: When an entry from brief actually helps, call mark_hit with the path. Entries with more hits rank higher in future searches.'"
           }
         ]
       }

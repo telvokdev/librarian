@@ -1,7 +1,7 @@
 ---
 name: librarian
 description: Use this skill when capturing learnings from our work together, or when starting work that might benefit from past knowledge. Triggers on: memory, remember, what did we learn, library, save this, before planning, decisions.
-version: 1.0.0
+version: 1.4.0
 ---
 
 # Librarian
@@ -10,36 +10,43 @@ We build a library together. Every insight worth remembering goes here.
 
 ## Tools
 
-- `brief(topic)` - Search our library for relevant entries
-- `record(topics, content)` - Save to local library
-- `adopt(entry)` - Copy imported entry to local (make it ours)
+- `brief(query)` - Search our library with semantic search. Use before planning or when something feels familiar.
+- `record(insight, ...)` - Save knowledge immediately when we learn something. One insight per call.
+- `adopt(path)` - Copy imported entry to local (make it ours)
+- `mark_hit(path)` - Track when an entry helps. Higher hits = higher ranking.
+- `import_memories(format, path)` - Import from other AI tools (jsonl, markdown, cursor, json, sqlite)
+- `rebuild_index()` - Rebuild semantic search index for legacy entries
 
 ## Workflow
 
-### Starting a Task
-1. Call `brief(topic)` to check what we already know
-2. Use what's relevant, ignore what's not
+### Before Thinking
+Call `brief({ query: "relevant topic" })` to check what we already know. Also use when an issue comes up again or feels like something we solved before.
 
 ### During Work
-- Notice patterns, gotchas, solutions worth remembering
-- Don't interrupt flow - mental note for later
+Call `record()` immediately when we:
+- Solve a problem (before moving to the next thing)
+- Make a decision (capture the reasoning NOW)
+- Hit a gotcha or mistake (it WILL come up again)
+- Learn something non-obvious (context dies fast)
 
-### Finishing Up
-- Call `record()` for insights worth keeping
-- If an imported entry was particularly useful, `adopt()` it to local
+Don't wait. Don't batch. One insight = one record call. Multiple recordings in one response is fine.
+
+### After Brief Helps
+Call `mark_hit({ path: "..." })` when an entry from brief actually helped. This makes it rank higher next time.
 
 ## What to Record
 
 **Yes:**
 - Hard-won solutions (the "aha" moments)
-- Gotchas and workarounds
+- Gotchas, mistakes, and workarounds
 - Patterns that worked
-- Decisions and why
+- Decisions and their reasoning
+- Non-obvious learnings
 
 **No:**
-- Generic docs (we can search those)
+- Generic docs (search exists)
 - Temporary fixes
-- Things likely to change
+- Things likely to change next week
 
 ## Entry Format
 
@@ -58,43 +65,60 @@ The actual knowledge.
 Code or concrete illustration.
 ```
 
+## Quality Bar
+
+**"I wish we knew this yesterday"**
+
+Good: "Stripe retries webhooks but doesn't dedupe - always check idempotency key"
+
+Not for Librarian: "Redis is a key-value store." (Just a fact, not wisdom.)
+
+## Smart Ranking
+
+Entries are ranked by:
+- 60% semantic similarity to your query
+- 25% recency (newer = higher)
+- 15% hit count (more helpful = higher)
+
+## Examples
+
+### Searching before planning
+```
+brief({ query: "stripe webhooks" })
+```
+
+### Recording immediately
+```
+record({ insight: "Clock skew between services - add 30s buffer to token validation" })
+```
+
+### Rich recording
+```
+record({
+  intent: "Setting up GitHub org for Telvok",
+  insight: "GitHub org names are first-come-first-served regardless of domain ownership",
+  context: "GitHub, npm, branding",
+  reasoning: "We owned telvok.com but someone squatted telvok org years ago",
+  example: "Had to use telvokdev instead of telvok"
+})
+```
+
+### Marking what helped
+```
+mark_hit({ path: "local/stripe-webhooks-need-idempotency.md" })
+```
+
+### Importing from other tools
+```
+import_memories({ format: "jsonl", path: "~/.aim/memory.jsonl", source_name: "anthropic" })
+import_memories({ format: "sqlite", path: "~/memory.db", source_name: "mcp-memory" })
+```
+
 ## File Structure
 
 ```
 .librarian/
-├── local/            # Our entries
-├── imported/         # Downloaded packages
-└── archived/         # Stale entries (still searchable)
+├── local/        # Our entries (indexed for semantic search)
+├── packages/     # Downloaded packages
+└── index.json    # Semantic embeddings
 ```
-
-## Quality Bar
-
-**The Senior Dev Test:** Would a senior dev say this to a new hire on their first day?
-
-Good: "When you're working on webhooks, always add idempotency. We learned that the hard way."
-
-Not for Librarian: "Redis is a key-value store." (Just a fact, not wisdom.)
-
-## Examples
-
-### Recording a learning
-```
-record({
-  topics: ["webhooks", "stripe"],
-  content: "We added Redis SETNX for idempotency after the December incident. Event IDs as keys, 24h TTL. No more duplicate charges."
-})
-```
-
-### Searching before planning
-```
-brief({ topic: "deployment" })
-```
-
-### Adopting useful knowledge
-```
-adopt({ entry: "stripe-patterns/webhook-basics" })
-```
-
-## Coming Soon
-
-**Telvok Marketplace** - Browse, buy, and sell libraries at telvok.com
