@@ -12,7 +12,7 @@ export interface ParsedEntry {
   intent?: string;
   reasoning?: string;
   example?: string;
-  source: 'jsonl' | 'markdown' | 'cursor';
+  source: 'jsonl' | 'markdown' | 'cursor' | 'json' | 'sqlite';
   originalPath?: string;
 }
 

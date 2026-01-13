@@ -2,7 +2,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { getLibraryPath, getLocalPath } from '../library/storage.js';
 import { loadIndex, saveIndex, addToIndex } from '../library/vector-index.js';
-import { parseJSONL, parseMarkdown, parseCursorMemory, type ParsedEntry } from '../library/parsers/index.js';
+import { parseJSONL, parseMarkdown, parseCursorMemory, parseJSON, parseSQLite, type ParsedEntry } from '../library/parsers/index.js';
 
 // ============================================================================
 // Types
@@ -29,20 +29,24 @@ Supported formats:
 - jsonl: Anthropic MCP Memory, mcp-knowledge-graph (.jsonl files)
 - markdown: Basic Memory, Obsidian, any .md files
 - cursor: Cursor Memory Bank (.cursor-memory/)
+- json: Simple memory servers, knowledge stores (.json files)
+- sqlite: mcp-memory-service, SQLite-vec (.db, .sqlite files)
 
 Imports go to .librarian/local/[source-name]/ and are automatically indexed for semantic search.
 
 Examples:
 - import_memories({ format: "jsonl", path: "~/.aim/memory.jsonl", source_name: "anthropic-memory" })
 - import_memories({ format: "markdown", path: "~/basic-memory/", source_name: "basic-memory" })
-- import_memories({ format: "cursor", path: ".cursor-memory/", source_name: "cursor-memory" })`,
+- import_memories({ format: "cursor", path: ".cursor-memory/", source_name: "cursor-memory" })
+- import_memories({ format: "json", path: "~/memories.json", source_name: "json-memory" })
+- import_memories({ format: "sqlite", path: "~/memory.db", source_name: "sqlite-memory" })`,
 
   inputSchema: {
     type: 'object' as const,
     properties: {
       format: {
         type: 'string',
-        enum: ['jsonl', 'markdown', 'cursor'],
+        enum: ['jsonl', 'markdown', 'cursor', 'json', 'sqlite'],
         description: 'Format of the source memories',
       },
       path: {
@@ -59,7 +63,7 @@ Examples:
 
   async handler(args: unknown): Promise<ImportResult> {
     const { format, path: inputPath, source_name } = args as {
-      format: 'jsonl' | 'markdown' | 'cursor';
+      format: 'jsonl' | 'markdown' | 'cursor' | 'json' | 'sqlite';
       path: string;
       source_name?: string;
     };
@@ -100,6 +104,12 @@ Examples:
         break;
       case 'cursor':
         parseResult = await parseCursorMemory(expandedPath);
+        break;
+      case 'json':
+        parseResult = await parseJSON(expandedPath);
+        break;
+      case 'sqlite':
+        parseResult = await parseSQLite(expandedPath);
         break;
       default:
         throw new Error(`Unknown format: ${format}`);
@@ -169,6 +179,10 @@ function generateSourceName(format: string, inputPath: string): string {
       return 'cursor-memory';
     case 'markdown':
       return basename.replace(/[^a-z0-9-]/gi, '-').toLowerCase() || 'imported-markdown';
+    case 'json':
+      return basename.replace(/[^a-z0-9-]/gi, '-').toLowerCase() || 'imported-json';
+    case 'sqlite':
+      return basename.replace(/[^a-z0-9-]/gi, '-').toLowerCase() || 'imported-sqlite';
     default:
       return `imported-${format}`;
   }
