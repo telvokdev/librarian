@@ -1,6 +1,6 @@
 {
   "name": "@telvok/librarian-mcp",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Knowledge capture MCP server - remember what you learn with AI",
   "type": "module",
   "main": "dist/server.js",
