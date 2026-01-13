@@ -21,9 +21,17 @@ export function getLocalPath(libraryPath: string): string {
 
 /**
  * Get the imported entries path.
+ * @deprecated Use getPackagesPath for marketplace content
  */
 export function getImportedPath(libraryPath: string): string {
   return path.join(libraryPath, 'imported');
+}
+
+/**
+ * Get the packages path (marketplace content from others).
+ */
+export function getPackagesPath(libraryPath: string): string {
+  return path.join(libraryPath, 'packages');
 }
 
 /**

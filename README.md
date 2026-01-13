@@ -8,11 +8,13 @@ Your AI partner remembers nothing between sessions. Every insight, every hard-wo
 
 We build a library together. Not documentation—the other stuff. The gotcha that burned an hour. The pattern that finally clicked. Why we chose X over Y.
 
-**Four tools:**
+**Six tools:**
 - `brief(query)` - Check what we already know before diving in
 - `record(insight, ...)` - Capture knowledge worth keeping. Quality bar: "I wish we knew this yesterday"
 - `mark_hit(path)` - Mark an entry as helpful. Entries with more hits bubble up in future queries
 - `adopt(path)` - Make imported knowledge ours
+- `import_memories(format, path)` - Import memories from other AI tools (Anthropic MCP Memory, Obsidian, Cursor, etc.)
+- `rebuild_index()` - Rebuild semantic search index for all entries
 
 ## Install
 
@@ -115,10 +117,46 @@ adopt({ path: "imported/package-name/entry-name" })
 
 ```
 .librarian/
-├── local/           # Your entries
-├── imported/        # Downloaded packages
-└── archived/        # Stale entries (still searchable)
+├── local/           # Your knowledge (recorded + imported from other tools)
+├── packages/        # Other people's knowledge (marketplace)
+├── archived/        # Stale entries (still searchable)
+└── index.json       # Semantic search embeddings
 ```
+
+## Importing Memories
+
+**New in v1.3.0:** Import existing memories from other AI tools into Librarian. One `brief()` query searches everything semantically.
+
+### Supported Formats
+
+| Format | Source | Example |
+|--------|--------|---------|
+| `jsonl` | Anthropic MCP Memory, mcp-knowledge-graph | `~/.aim/memory.jsonl` |
+| `markdown` | Basic Memory MCP, Obsidian, any .md files | `~/basic-memory/` |
+| `cursor` | Cursor Memory Bank | `.cursor-memory/` |
+
+### Examples
+
+```
+# Import from Anthropic MCP Memory
+import_memories({ format: "jsonl", path: "~/.aim/memory.jsonl", source_name: "anthropic" })
+
+# Import from Obsidian notes
+import_memories({ format: "markdown", path: "~/Documents/Obsidian/Notes/", source_name: "obsidian" })
+
+# Import from Cursor Memory Bank
+import_memories({ format: "cursor", path: ".cursor-memory/", source_name: "cursor" })
+```
+
+### After Importing
+
+After importing, run `rebuild_index()` to ensure all entries are semantically searchable:
+
+```
+rebuild_index()
+```
+
+This regenerates embeddings for all entries. Also use this after upgrading to v1.2.0+ if you have existing entries.
 
 ## Semantic Search
 

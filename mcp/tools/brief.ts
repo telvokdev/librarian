@@ -2,7 +2,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import matter from 'gray-matter';
 import { glob } from 'glob';
-import { getLibraryPath, getLocalPath, getImportedPath } from '../library/storage.js';
+import { getLibraryPath, getLocalPath, getImportedPath, getPackagesPath } from '../library/storage.js';
 import { loadIndex, semanticSearch, isIndexStale, type SemanticMatch } from '../library/vector-index.js';
 
 // ============================================================================
@@ -66,6 +66,7 @@ Examples:
     const libraryPath = getLibraryPath();
     const localPath = getLocalPath(libraryPath);
     const importedPath = getImportedPath(libraryPath);
+    const packagesPath = getPackagesPath(libraryPath);
 
     let allEntries: BriefEntry[] = [];
     let useSemanticSearch = false;
@@ -131,7 +132,7 @@ Examples:
       // No local files yet
     }
 
-    // Read imported entries
+    // Read imported entries (legacy - deprecated)
     try {
       const importedFiles = await glob(path.join(importedPath, '**/*.md'), { nodir: true });
       for (const filePath of importedFiles) {
@@ -142,6 +143,19 @@ Examples:
       }
     } catch {
       // No imported files
+    }
+
+    // Read packages entries (marketplace content)
+    try {
+      const packagesFiles = await glob(path.join(packagesPath, '**/*.md'), { nodir: true });
+      for (const filePath of packagesFiles) {
+        const entry = await readEntry(filePath, libraryPath);
+        if (entry) {
+          allEntries.push(entry);
+        }
+      }
+    } catch {
+      // No packages files
     }
 
     // If no entries at all
