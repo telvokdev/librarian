@@ -1,7 +1,7 @@
 ---
 name: librarian
 description: Use this skill when capturing learnings from our work together, or when starting work that might benefit from past knowledge. Triggers on: memory, remember, what did we learn, library, save this, before planning, decisions.
-version: 1.5.3
+version: 1.5.4
 ---
 
 # Librarian
