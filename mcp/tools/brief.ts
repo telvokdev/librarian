@@ -18,6 +18,16 @@ export interface BriefEntry {
   created: string;
   hits: number;           // How many times this entry helped
   last_hit: string | null; // When it last helped
+  source?: 'local' | 'marketplace';  // Where this entry came from
+}
+
+export interface MarketplaceBook {
+  slug: string;
+  name: string;
+  description: string;
+  pricing: string;
+  price: string;
+  entries: number;
 }
 
 export interface BriefResult {
@@ -25,11 +35,17 @@ export interface BriefResult {
   total: number;
   message: string;
   libraryPath: string;  // So Claude knows where to read full entries
+  marketplace?: {
+    books: MarketplaceBook[];
+    total: number;
+  };
 }
 
 // ============================================================================
 // Tool Definition
 // ============================================================================
+
+const TELVOK_API_URL = process.env.TELVOK_API_URL || 'https://telvok.com';
 
 export const briefTool = {
   name: 'brief',
@@ -42,7 +58,8 @@ Searches intent, insight, context, and examples.
 Examples:
 - brief({ query: "stripe webhooks" })
 - brief({ query: "auth token" })
-- brief({}) → returns recent entries`,
+- brief({}) → returns recent entries
+- brief({ query: "react", include_marketplace: true }) → also search marketplace`,
 
   inputSchema: {
     type: 'object' as const,
@@ -56,12 +73,21 @@ Examples:
         description: 'Max entries to return',
         default: 5,
       },
+      include_marketplace: {
+        type: 'boolean',
+        description: 'Also search Telvok marketplace for relevant books',
+        default: false,
+      },
     },
     required: [],
   },
 
   async handler(args: unknown): Promise<BriefResult> {
-    const { query, limit = 5 } = args as { query?: string; limit?: number };
+    const { query, limit = 5, include_marketplace = false } = args as {
+      query?: string;
+      limit?: number;
+      include_marketplace?: boolean;
+    };
 
     const libraryPath = getLibraryPath();
     const localPath = getLocalPath(libraryPath);
@@ -110,11 +136,23 @@ Examples:
       const total = allEntries.length;
       const entries = allEntries.slice(0, limit);
 
+      // Optionally fetch marketplace results
+      let marketplaceResult: { books: MarketplaceBook[]; total: number } | undefined;
+      if (include_marketplace && query) {
+        marketplaceResult = await fetchMarketplaceResults(query, 5);
+      }
+
+      let message = `Found ${total} ${total === 1 ? 'entry' : 'entries'} for "${query}" (semantic search).`;
+      if (marketplaceResult && marketplaceResult.books.length > 0) {
+        message += ` Also found ${marketplaceResult.total} book(s) on marketplace.`;
+      }
+
       return {
         entries,
         total,
-        message: `Found ${total} ${total === 1 ? 'entry' : 'entries'} for "${query}" (semantic search).`,
+        message,
         libraryPath: localPath,
+        marketplace: marketplaceResult,
       };
     }
 
@@ -183,6 +221,12 @@ Examples:
     // Apply limit
     const entries = allEntries.slice(0, limit);
 
+    // Optionally fetch marketplace results
+    let marketplaceResult: { books: MarketplaceBook[]; total: number } | undefined;
+    if (include_marketplace && query) {
+      marketplaceResult = await fetchMarketplaceResults(query, 5);
+    }
+
     // Build message
     let message: string;
     if (query) {
@@ -193,11 +237,16 @@ Examples:
       message = `${total} ${total === 1 ? 'entry' : 'entries'} in library.`;
     }
 
+    if (marketplaceResult && marketplaceResult.books.length > 0) {
+      message += ` Also found ${marketplaceResult.total} book(s) on marketplace.`;
+    }
+
     return {
       entries,
       total,
       message,
       libraryPath: localPath,
+      marketplace: marketplaceResult,
     };
   },
 };
@@ -303,4 +352,52 @@ function rankEntries(entries: BriefEntry[]): BriefEntry[] {
   scored.sort((a, b) => b.score - a.score);
 
   return scored.map(s => s.entry);
+}
+
+// ============================================================================
+// Marketplace Search
+// ============================================================================
+
+async function fetchMarketplaceResults(
+  query: string,
+  limit: number
+): Promise<{ books: MarketplaceBook[]; total: number }> {
+  try {
+    const response = await fetch(`${TELVOK_API_URL}/api/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, limit }),
+    });
+
+    if (!response.ok) {
+      // Don't fail the whole brief() if marketplace is down
+      return { books: [], total: 0 };
+    }
+
+    const data = await response.json();
+
+    const books: MarketplaceBook[] = (data.books || []).map((b: {
+      slug: string;
+      name: string;
+      description: string;
+      pricing: string;
+      price: string;
+      entries: number;
+    }) => ({
+      slug: b.slug,
+      name: b.name,
+      description: b.description,
+      pricing: b.pricing,
+      price: b.price,
+      entries: b.entries,
+    }));
+
+    return {
+      books,
+      total: data.total || 0,
+    };
+  } catch {
+    // Network error - silently return empty results
+    return { books: [], total: 0 };
+  }
 }

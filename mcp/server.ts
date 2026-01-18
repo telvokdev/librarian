@@ -12,6 +12,7 @@ import { markHitTool } from './tools/mark-hit.js';
 import { importMemoriesTool } from './tools/import-memories.js';
 import { rebuildIndexTool } from './tools/rebuild-index.js';
 import { authTool } from './tools/auth.js';
+import { marketplaceSearchTool } from './tools/marketplace-search.js';
 
 const server = new Server(
   {
@@ -64,6 +65,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         description: authTool.description,
         inputSchema: authTool.inputSchema,
       },
+      {
+        name: marketplaceSearchTool.name,
+        description: marketplaceSearchTool.description,
+        inputSchema: marketplaceSearchTool.inputSchema,
+      },
     ],
   };
 });
@@ -96,6 +102,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         break;
       case 'auth':
         result = await authTool.handler(args);
+        break;
+      case 'marketplace_search':
+        result = await marketplaceSearchTool.handler(args);
         break;
       default:
         throw new Error(`Unknown tool: ${name}`);
