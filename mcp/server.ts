@@ -11,6 +11,7 @@ import { adoptTool } from './tools/adopt.js';
 import { markHitTool } from './tools/mark-hit.js';
 import { importMemoriesTool } from './tools/import-memories.js';
 import { rebuildIndexTool } from './tools/rebuild-index.js';
+import { authTool } from './tools/auth.js';
 
 const server = new Server(
   {
@@ -58,6 +59,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         description: rebuildIndexTool.description,
         inputSchema: rebuildIndexTool.inputSchema,
       },
+      {
+        name: authTool.name,
+        description: authTool.description,
+        inputSchema: authTool.inputSchema,
+      },
     ],
   };
 });
@@ -87,6 +93,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         break;
       case 'rebuild_index':
         result = await rebuildIndexTool.handler(args);
+        break;
+      case 'auth':
+        result = await authTool.handler(args);
         break;
       default:
         throw new Error(`Unknown tool: ${name}`);

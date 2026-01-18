@@ -4,3 +4,4 @@ export { adoptTool } from './adopt.js';
 export { markHitTool } from './mark-hit.js';
 export { importMemoriesTool } from './import-memories.js';
 export { rebuildIndexTool } from './rebuild-index.js';
+export { authTool, loadApiKey } from './auth.js';
