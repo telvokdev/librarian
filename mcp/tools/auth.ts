@@ -42,11 +42,13 @@ Use this to connect your agent to your Telvok account.
 
 Actions:
 - login: Start device code flow. Returns a code to enter at telvok.com/device
+- complete: After user authorizes, call this to finish login and save credentials
 - logout: Remove stored credentials
 - status: Check if authenticated and show current user
 
 Examples:
 - auth({ action: 'login' })  → Get code, visit URL, authorize
+- auth({ action: 'complete' }) → After authorizing, complete the login
 - auth({ action: 'status' }) → Check if logged in
 - auth({ action: 'logout' }) → Clear credentials`,
 
@@ -55,7 +57,7 @@ Examples:
     properties: {
       action: {
         type: 'string',
-        enum: ['login', 'logout', 'status'],
+        enum: ['login', 'complete', 'logout', 'status'],
         description: 'Auth action to perform',
       },
     },
@@ -63,10 +65,11 @@ Examples:
   },
 
   async handler(args: unknown): Promise<AuthResult> {
-    const { action } = args as { action: 'login' | 'logout' | 'status' };
+    const { action } = args as { action: 'login' | 'complete' | 'logout' | 'status' };
 
     const libraryPath = getLibraryPath();
     const authFile = path.join(libraryPath, '.auth');
+    const pendingFile = path.join(libraryPath, '.auth-pending');
 
     switch (action) {
       case 'status':
@@ -76,7 +79,10 @@ Examples:
         return await logout(authFile);
 
       case 'login':
-        return await login(authFile);
+        return await login(authFile, pendingFile);
+
+      case 'complete':
+        return await completeLogin(authFile, pendingFile);
 
       default:
         throw new Error(`Unknown action: ${action}`);
@@ -122,7 +128,7 @@ async function logout(authFile: string): Promise<AuthResult> {
   }
 }
 
-async function login(authFile: string): Promise<AuthResult> {
+async function login(authFile: string, pendingFile: string): Promise<AuthResult> {
   // Check if already authenticated
   try {
     const content = await fs.readFile(authFile, 'utf-8');
@@ -138,10 +144,6 @@ async function login(authFile: string): Promise<AuthResult> {
   }
 
   // Request a new device code
-  let deviceCode: string;
-  let userCode: string;
-  let verificationUrl: string;
-
   try {
     const response = await fetch(`${TELVOK_API_URL}/api/auth/device`, {
       method: 'POST',
@@ -154,27 +156,47 @@ async function login(authFile: string): Promise<AuthResult> {
     }
 
     const data = await response.json();
-    deviceCode = data.device_code;
-    userCode = data.user_code;
-    verificationUrl = data.verification_url;
+
+    // Save device code to pending file for later completion
+    const libraryPath = getLibraryPath();
+    await fs.mkdir(libraryPath, { recursive: true });
+    await fs.writeFile(pendingFile, JSON.stringify({
+      device_code: data.device_code,
+      user_code: data.user_code,
+      verification_url: data.verification_url,
+      created_at: new Date().toISOString(),
+    }, null, 2), 'utf-8');
+
+    // Return immediately with direct auth URL
+    const directAuthUrl = `${TELVOK_API_URL}/auth/${data.device_code}`;
+    return {
+      authenticated: false,
+      verification_url: directAuthUrl,
+      user_code: data.user_code,
+      message: `Click to authorize: ${directAuthUrl}\n\nAfter authorizing, call auth({ action: "complete" }) to finish.`,
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Failed to start login: ${message}`);
   }
+}
 
-  // Display instructions to user
-  console.log('\n' + '='.repeat(50));
-  console.log('  TELVOK AUTHENTICATION');
-  console.log('='.repeat(50));
-  console.log(`\n  1. Visit: ${verificationUrl}`);
-  console.log(`  2. Enter code: ${userCode}`);
-  console.log(`  3. Authorize your agent\n`);
-  console.log('  Waiting for authorization...\n');
+async function completeLogin(authFile: string, pendingFile: string): Promise<AuthResult> {
+  // Read pending device code
+  let deviceCode: string;
+  try {
+    const content = await fs.readFile(pendingFile, 'utf-8');
+    const pending = JSON.parse(content);
+    deviceCode = pending.device_code;
+  } catch {
+    return {
+      authenticated: false,
+      message: 'No pending login. Call auth({ action: "login" }) first.',
+    };
+  }
 
-  // Poll for completion
-  for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
-    await sleep(POLL_INTERVAL_MS);
-
+  // Poll for completion (try a few times)
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const response = await fetch(`${TELVOK_API_URL}/api/auth/device/poll`, {
         method: 'POST',
@@ -185,12 +207,13 @@ async function login(authFile: string): Promise<AuthResult> {
       const data = await response.json();
 
       if (data.status === 'pending') {
-        // Still waiting, continue polling
+        await sleep(2000);
         continue;
       }
 
       if (data.status === 'expired') {
-        throw new Error('Code expired. Please try again.');
+        await fs.unlink(pendingFile).catch(() => {});
+        throw new Error('Code expired. Please call auth({ action: "login" }) to get a new code.');
       }
 
       if (data.status === 'success') {
@@ -202,15 +225,8 @@ async function login(authFile: string): Promise<AuthResult> {
           created_at: new Date().toISOString(),
         };
 
-        // Ensure .librarian directory exists
-        const libraryPath = getLibraryPath();
-        await fs.mkdir(libraryPath, { recursive: true });
-
-        // Write auth file
         await fs.writeFile(authFile, JSON.stringify(authData, null, 2), 'utf-8');
-
-        console.log('  Success! Agent authorized.\n');
-        console.log('='.repeat(50) + '\n');
+        await fs.unlink(pendingFile).catch(() => {});
 
         return {
           authenticated: true,
@@ -220,17 +236,20 @@ async function login(authFile: string): Promise<AuthResult> {
         };
       }
 
-      // Unknown status
       throw new Error(`Unexpected status: ${data.status}`);
     } catch (error) {
-      if (error instanceof Error && error.message.includes('expired')) {
+      if (error instanceof Error && (error.message.includes('expired') || error.message.includes('Unexpected'))) {
         throw error;
       }
-      // Network error, continue polling
+      // Network error, try again
+      await sleep(1000);
     }
   }
 
-  throw new Error('Authorization timed out. Please try again.');
+  return {
+    authenticated: false,
+    message: 'Authorization not yet complete. Make sure you authorized at telvok.com/device, then call auth({ action: "complete" }) again.',
+  };
 }
 
 // ============================================================================
