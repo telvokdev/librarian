@@ -14,6 +14,7 @@ import { rebuildIndexTool } from './tools/rebuild-index.js';
 import { authTool } from './tools/auth.js';
 import { marketplaceSearchTool } from './tools/marketplace-search.js';
 import { marketplaceBuyTool } from './tools/marketplace-buy.js';
+import { marketplaceDownloadTool } from './tools/marketplace-download.js';
 
 const server = new Server(
   {
@@ -76,6 +77,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         description: marketplaceBuyTool.description,
         inputSchema: marketplaceBuyTool.inputSchema,
       },
+      {
+        name: marketplaceDownloadTool.name,
+        description: marketplaceDownloadTool.description,
+        inputSchema: marketplaceDownloadTool.inputSchema,
+      },
     ],
   };
 });
@@ -114,6 +120,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         break;
       case 'marketplace_buy':
         result = await marketplaceBuyTool.handler(args);
+        break;
+      case 'marketplace_download':
+        result = await marketplaceDownloadTool.handler(args);
         break;
       default:
         throw new Error(`Unknown tool: ${name}`);
