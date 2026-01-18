@@ -4,6 +4,7 @@ import matter from 'gray-matter';
 import { glob } from 'glob';
 import { getLibraryPath, getLocalPath, getImportedPath, getPackagesPath } from '../library/storage.js';
 import { loadIndex, semanticSearch, isIndexStale, type SemanticMatch } from '../library/vector-index.js';
+import { loadApiKey } from './auth.js';
 
 // ============================================================================
 // Types
@@ -18,7 +19,9 @@ export interface BriefEntry {
   created: string;
   hits: number;           // How many times this entry helped
   last_hit: string | null; // When it last helped
-  source?: 'local' | 'marketplace';  // Where this entry came from
+  source?: 'local' | 'cloud' | 'packages';  // Where this entry came from
+  book_name?: string;     // For cloud entries: which book this is from
+  book_slug?: string;     // For cloud entries: book slug for attribution
 }
 
 export interface MarketplaceBook {
@@ -136,20 +139,65 @@ Examples:
       const total = allEntries.length;
       const entries = allEntries.slice(0, limit);
 
-      // Optionally fetch marketplace results
+      // Optionally fetch cloud content and marketplace results
+      let cloudResult: { entries: CloudEntry[]; total: number } | undefined;
       let marketplaceResult: { books: MarketplaceBook[]; total: number } | undefined;
+
       if (include_marketplace && query) {
-        marketplaceResult = await fetchMarketplaceResults(query, 5);
+        // Fetch cloud content from owned books (in parallel with marketplace)
+        const [cloudData, marketplaceData] = await Promise.all([
+          fetchCloudContent(query, limit),
+          fetchMarketplaceResults(query, 5),
+        ]);
+        cloudResult = cloudData;
+        marketplaceResult = marketplaceData;
+
+        // Filter marketplace to exclude books user already owns
+        // (we got cloud results from them, so they own them)
+        if (cloudResult.entries.length > 0) {
+          const ownedSlugs = new Set(cloudResult.entries.map(e => e.book_slug));
+          marketplaceResult.books = marketplaceResult.books.filter(b => !ownedSlugs.has(b.slug));
+          marketplaceResult.total = marketplaceResult.books.length;
+        }
       }
 
-      let message = `Found ${total} ${total === 1 ? 'entry' : 'entries'} for "${query}" (semantic search).`;
+      // Convert cloud entries to BriefEntry format and merge
+      let finalEntries = [...entries];
+      if (cloudResult && cloudResult.entries.length > 0) {
+        const cloudBriefEntries: BriefEntry[] = cloudResult.entries.map(ce => ({
+          title: ce.title,
+          intent: ce.intent,
+          context: ce.context,
+          preview: ce.insight.length > 100 ? ce.insight.slice(0, 100) + '...' : ce.insight,
+          path: `cloud:${ce.book_slug}`,  // Virtual path for cloud entries
+          created: new Date().toISOString(),
+          hits: 0,
+          last_hit: null,
+          source: 'cloud' as const,
+          book_name: ce.book_name,
+          book_slug: ce.book_slug,
+        }));
+        // Interleave cloud entries with local: put cloud first (paid content priority)
+        // then fill remaining slots with local entries
+        const cloudCount = Math.min(cloudBriefEntries.length, Math.ceil(limit / 2));
+        const localCount = limit - cloudCount;
+        finalEntries = [
+          ...cloudBriefEntries.slice(0, cloudCount),
+          ...entries.slice(0, localCount),
+        ];
+      }
+
+      let message = `Found ${total} local ${total === 1 ? 'entry' : 'entries'} for "${query}" (semantic search).`;
+      if (cloudResult && cloudResult.entries.length > 0) {
+        message += ` Also found ${cloudResult.total} matching entries from owned books.`;
+      }
       if (marketplaceResult && marketplaceResult.books.length > 0) {
-        message += ` Also found ${marketplaceResult.total} book(s) on marketplace.`;
+        message += ` ${marketplaceResult.total} book(s) available on marketplace.`;
       }
 
       return {
-        entries,
-        total,
+        entries: finalEntries,
+        total: finalEntries.length,
         message,
         libraryPath: localPath,
         marketplace: marketplaceResult,
@@ -221,29 +269,66 @@ Examples:
     // Apply limit
     const entries = allEntries.slice(0, limit);
 
-    // Optionally fetch marketplace results
+    // Optionally fetch cloud content and marketplace results
+    let cloudResult: { entries: CloudEntry[]; total: number } | undefined;
     let marketplaceResult: { books: MarketplaceBook[]; total: number } | undefined;
+
     if (include_marketplace && query) {
-      marketplaceResult = await fetchMarketplaceResults(query, 5);
+      // Fetch cloud content from owned books (in parallel with marketplace)
+      const [cloudData, marketplaceData] = await Promise.all([
+        fetchCloudContent(query, limit),
+        fetchMarketplaceResults(query, 5),
+      ]);
+      cloudResult = cloudData;
+      marketplaceResult = marketplaceData;
+
+      // Filter marketplace to exclude books user already owns
+      if (cloudResult.entries.length > 0) {
+        const ownedSlugs = new Set(cloudResult.entries.map(e => e.book_slug));
+        marketplaceResult.books = marketplaceResult.books.filter(b => !ownedSlugs.has(b.slug));
+        marketplaceResult.total = marketplaceResult.books.length;
+      }
+    }
+
+    // Convert cloud entries to BriefEntry format and merge
+    let finalEntries = [...entries];
+    if (cloudResult && cloudResult.entries.length > 0) {
+      const cloudBriefEntries: BriefEntry[] = cloudResult.entries.map(ce => ({
+        title: ce.title,
+        intent: ce.intent,
+        context: ce.context,
+        preview: ce.insight.length > 100 ? ce.insight.slice(0, 100) + '...' : ce.insight,
+        path: `cloud:${ce.book_slug}`,  // Virtual path for cloud entries
+        created: new Date().toISOString(),
+        hits: 0,
+        last_hit: null,
+        source: 'cloud' as const,
+        book_name: ce.book_name,
+        book_slug: ce.book_slug,
+      }));
+      finalEntries = [...entries, ...cloudBriefEntries].slice(0, limit);
     }
 
     // Build message
     let message: string;
     if (query) {
       message = total === 0
-        ? `No entries found for "${query}".`
-        : `Found ${total} ${total === 1 ? 'entry' : 'entries'} for "${query}".`;
+        ? `No local entries found for "${query}".`
+        : `Found ${total} local ${total === 1 ? 'entry' : 'entries'} for "${query}".`;
     } else {
       message = `${total} ${total === 1 ? 'entry' : 'entries'} in library.`;
     }
 
+    if (cloudResult && cloudResult.entries.length > 0) {
+      message += ` Also found ${cloudResult.total} matching entries from owned books.`;
+    }
     if (marketplaceResult && marketplaceResult.books.length > 0) {
-      message += ` Also found ${marketplaceResult.total} book(s) on marketplace.`;
+      message += ` ${marketplaceResult.total} book(s) available on marketplace.`;
     }
 
     return {
-      entries,
-      total,
+      entries: finalEntries,
+      total: finalEntries.length,
       message,
       libraryPath: localPath,
       marketplace: marketplaceResult,
@@ -352,6 +437,56 @@ function rankEntries(entries: BriefEntry[]): BriefEntry[] {
   scored.sort((a, b) => b.score - a.score);
 
   return scored.map(s => s.entry);
+}
+
+// ============================================================================
+// Cloud Content Query (for paid books user owns)
+// ============================================================================
+
+interface CloudEntry {
+  title: string;
+  insight: string;
+  intent: string | null;
+  context: string | null;
+  book_slug: string;
+  book_name: string;
+  pricing_type: string;
+}
+
+async function fetchCloudContent(
+  query: string,
+  limit: number
+): Promise<{ entries: CloudEntry[]; total: number }> {
+  try {
+    // Check if authenticated
+    const apiKey = await loadApiKey();
+    if (!apiKey) {
+      return { entries: [], total: 0 };
+    }
+
+    const response = await fetch(`${TELVOK_API_URL}/api/library/query`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ query, limit }),
+    });
+
+    if (!response.ok) {
+      // Don't fail if cloud query fails
+      return { entries: [], total: 0 };
+    }
+
+    const data = await response.json();
+    return {
+      entries: data.entries || [],
+      total: data.total || 0,
+    };
+  } catch {
+    // Network error - silently return empty results
+    return { entries: [], total: 0 };
+  }
 }
 
 // ============================================================================

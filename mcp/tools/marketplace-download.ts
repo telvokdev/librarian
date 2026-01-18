@@ -44,10 +44,13 @@ interface DownloadResult {
 
 export const marketplaceDownloadTool = {
   name: 'marketplace_download',
-  description: `Download a purchased book to your local library.
+  description: `Download a FREE (open) book to your local library.
 
-After purchasing a book with marketplace_buy(), use this to download the content
-to .librarian/packages/{slug}/ for offline access.
+Downloads content from free/open books to .librarian/packages/{slug}/ for offline access.
+
+NOTE: Paid books (one-time or subscription) cannot be downloaded - they are cloud-only
+for IP protection. Use brief({ query: "...", include_marketplace: true }) to access
+content from paid books you own.
 
 Requires authentication and ownership (purchased or free).
 
@@ -96,6 +99,15 @@ Examples:
         return {
           success: false,
           message: data.error || `Download failed: HTTP ${response.status}`,
+        };
+      }
+
+      // Check if book is paid - reject download for paid content
+      const pricingType = data.book?.pricing_type;
+      if (pricingType && pricingType !== 'open') {
+        return {
+          success: false,
+          message: `Paid content cannot be downloaded locally. '${data.book.name}' is a ${pricingType === 'subscription' ? 'subscription' : 'paid'} book.\n\nTo access content from paid books, use:\n  brief({ query: "your search", include_marketplace: true })`,
         };
       }
 
