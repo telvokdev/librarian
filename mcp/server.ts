@@ -21,6 +21,7 @@ import { syncTool } from './tools/sync.js';
 import { sellerAnalyticsTool } from './tools/seller-analytics.js';
 import { rateBookTool } from './tools/rate-book.js';
 import { helpTool } from './tools/help.js';
+import { feedbackTool } from './tools/feedback.js';
 
 const server = new Server(
   {
@@ -118,6 +119,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         description: helpTool.description,
         inputSchema: helpTool.inputSchema,
       },
+      {
+        name: feedbackTool.name,
+        description: feedbackTool.description,
+        inputSchema: feedbackTool.inputSchema,
+      },
     ],
   };
 });
@@ -177,6 +183,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         break;
       case 'help':
         result = await helpTool.handler(args);
+        break;
+      case 'feedback':
+        result = await feedbackTool.handler(args);
         break;
       default:
         throw new Error(`Unknown tool: ${name}`);

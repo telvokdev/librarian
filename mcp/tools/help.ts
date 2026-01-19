@@ -246,6 +246,20 @@ EXAMPLES:
   })
 
 Paid books require Stripe Connect setup.`,
+
+  feedback: `feedback({ message, type? })
+
+Send feedback to the Telvok team.
+
+PARAMETERS:
+  message  Your feedback (5-5000 characters)
+  type     bug | feature | question | general
+
+EXAMPLES:
+  feedback({ message: "Sync times out on large books", type: "bug" })
+  feedback({ message: "Would love author filtering", type: "feature" })
+
+We read every message!`,
 };
 
 // ============================================================================
