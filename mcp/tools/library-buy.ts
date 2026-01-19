@@ -1,6 +1,6 @@
 // ============================================================================
 // Marketplace Buy Tool
-// Purchase or claim books from the Telvok marketplace
+// Purchase or claim books from the Telvok library
 // ============================================================================
 
 import { loadApiKey } from './auth.js';
@@ -34,9 +34,9 @@ interface BuyResult {
 // Tool Definition
 // ============================================================================
 
-export const marketplaceBuyTool = {
-  name: 'marketplace_buy',
-  description: `Purchase or claim a book from the Telvok marketplace.
+export const libraryBuyTool = {
+  name: 'library_buy',
+  description: `Purchase or claim a book from the Telvok library.
 
 For free (open) books: Instantly adds the book to your library.
 For paid books: Returns a checkout URL to complete payment.
@@ -44,15 +44,15 @@ For paid books: Returns a checkout URL to complete payment.
 Requires authentication. Run auth({ action: "login" }) first if not connected.
 
 Examples:
-- marketplace_buy({ slug: "react-best-practices" })
-- marketplace_buy({ slug: "premium-patterns" })`,
+- library_buy({ slug: "react-best-practices" })
+- library_buy({ slug: "premium-patterns" })`,
 
   inputSchema: {
     type: 'object' as const,
     properties: {
       slug: {
         type: 'string',
-        description: 'Book slug from marketplace_search results',
+        description: 'Book slug from library_search results',
       },
     },
     required: ['slug'],

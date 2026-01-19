@@ -38,7 +38,7 @@ export interface BriefResult {
   total: number;
   message: string;
   libraryPath: string;  // So Claude knows where to read full entries
-  marketplace?: {
+  library?: {
     books: MarketplaceBook[];
     total: number;
   };
@@ -62,7 +62,7 @@ Examples:
 - brief({ query: "stripe webhooks" })
 - brief({ query: "auth token" })
 - brief({}) → returns recent entries
-- brief({ query: "react", include_marketplace: true }) → also search marketplace`,
+- brief({ query: "react", include_library: true }) → also search library`,
 
   inputSchema: {
     type: 'object' as const,
@@ -76,9 +76,9 @@ Examples:
         description: 'Max entries to return',
         default: 5,
       },
-      include_marketplace: {
+      include_library: {
         type: 'boolean',
-        description: 'Also search Telvok marketplace for relevant books',
+        description: 'Also search Telvok library for relevant books',
         default: false,
       },
     },
@@ -86,10 +86,10 @@ Examples:
   },
 
   async handler(args: unknown): Promise<BriefResult> {
-    const { query, limit = 5, include_marketplace = false } = args as {
+    const { query, limit = 5, include_library = false } = args as {
       query?: string;
       limit?: number;
-      include_marketplace?: boolean;
+      include_library?: boolean;
     };
 
     const libraryPath = getLibraryPath();
@@ -139,25 +139,25 @@ Examples:
       const total = allEntries.length;
       const entries = allEntries.slice(0, limit);
 
-      // Optionally fetch cloud content and marketplace results
+      // Optionally fetch cloud content and library results
       let cloudResult: { entries: CloudEntry[]; total: number } | undefined;
-      let marketplaceResult: { books: MarketplaceBook[]; total: number } | undefined;
+      let libraryResult: { books: MarketplaceBook[]; total: number } | undefined;
 
-      if (include_marketplace && query) {
-        // Fetch cloud content from owned books (in parallel with marketplace)
-        const [cloudData, marketplaceData] = await Promise.all([
+      if (include_library && query) {
+        // Fetch cloud content from owned books (in parallel with library)
+        const [cloudData, libraryData] = await Promise.all([
           fetchCloudContent(query, limit),
           fetchMarketplaceResults(query, 5),
         ]);
         cloudResult = cloudData;
-        marketplaceResult = marketplaceData;
+        libraryResult = libraryData;
 
-        // Filter marketplace to exclude books user already owns
+        // Filter library to exclude books user already owns
         // (we got cloud results from them, so they own them)
         if (cloudResult.entries.length > 0) {
           const ownedSlugs = new Set(cloudResult.entries.map(e => e.book_slug));
-          marketplaceResult.books = marketplaceResult.books.filter(b => !ownedSlugs.has(b.slug));
-          marketplaceResult.total = marketplaceResult.books.length;
+          libraryResult.books = libraryResult.books.filter(b => !ownedSlugs.has(b.slug));
+          libraryResult.total = libraryResult.books.length;
         }
       }
 
@@ -191,8 +191,8 @@ Examples:
       if (cloudResult && cloudResult.entries.length > 0) {
         message += ` Also found ${cloudResult.total} matching entries from owned books.`;
       }
-      if (marketplaceResult && marketplaceResult.books.length > 0) {
-        message += ` ${marketplaceResult.total} book(s) available on marketplace.`;
+      if (libraryResult && libraryResult.books.length > 0) {
+        message += ` ${libraryResult.total} book(s) available on library.`;
       }
 
       return {
@@ -200,7 +200,7 @@ Examples:
         total: finalEntries.length,
         message,
         libraryPath: localPath,
-        marketplace: marketplaceResult,
+        library: libraryResult,
       };
     }
 
@@ -231,7 +231,7 @@ Examples:
       // No imported files
     }
 
-    // Read packages entries (marketplace content)
+    // Read packages entries (library content)
     try {
       const packagesFiles = await glob(path.join(packagesPath, '**/*.md'), { nodir: true });
       for (const filePath of packagesFiles) {
@@ -269,24 +269,24 @@ Examples:
     // Apply limit
     const entries = allEntries.slice(0, limit);
 
-    // Optionally fetch cloud content and marketplace results
+    // Optionally fetch cloud content and library results
     let cloudResult: { entries: CloudEntry[]; total: number } | undefined;
-    let marketplaceResult: { books: MarketplaceBook[]; total: number } | undefined;
+    let libraryResult: { books: MarketplaceBook[]; total: number } | undefined;
 
-    if (include_marketplace && query) {
-      // Fetch cloud content from owned books (in parallel with marketplace)
-      const [cloudData, marketplaceData] = await Promise.all([
+    if (include_library && query) {
+      // Fetch cloud content from owned books (in parallel with library)
+      const [cloudData, libraryData] = await Promise.all([
         fetchCloudContent(query, limit),
         fetchMarketplaceResults(query, 5),
       ]);
       cloudResult = cloudData;
-      marketplaceResult = marketplaceData;
+      libraryResult = libraryData;
 
-      // Filter marketplace to exclude books user already owns
+      // Filter library to exclude books user already owns
       if (cloudResult.entries.length > 0) {
         const ownedSlugs = new Set(cloudResult.entries.map(e => e.book_slug));
-        marketplaceResult.books = marketplaceResult.books.filter(b => !ownedSlugs.has(b.slug));
-        marketplaceResult.total = marketplaceResult.books.length;
+        libraryResult.books = libraryResult.books.filter(b => !ownedSlugs.has(b.slug));
+        libraryResult.total = libraryResult.books.length;
       }
     }
 
@@ -322,8 +322,8 @@ Examples:
     if (cloudResult && cloudResult.entries.length > 0) {
       message += ` Also found ${cloudResult.total} matching entries from owned books.`;
     }
-    if (marketplaceResult && marketplaceResult.books.length > 0) {
-      message += ` ${marketplaceResult.total} book(s) available on marketplace.`;
+    if (libraryResult && libraryResult.books.length > 0) {
+      message += ` ${libraryResult.total} book(s) available on library.`;
     }
 
     return {
@@ -331,7 +331,7 @@ Examples:
       total: finalEntries.length,
       message,
       libraryPath: localPath,
-      marketplace: marketplaceResult,
+      library: libraryResult,
     };
   },
 };
@@ -505,7 +505,7 @@ async function fetchMarketplaceResults(
     });
 
     if (!response.ok) {
-      // Don't fail the whole brief() if marketplace is down
+      // Don't fail the whole brief() if library is down
       return { books: [], total: 0 };
     }
 

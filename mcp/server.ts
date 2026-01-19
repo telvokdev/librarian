@@ -12,10 +12,15 @@ import { markHitTool } from './tools/mark-hit.js';
 import { importMemoriesTool } from './tools/import-memories.js';
 import { rebuildIndexTool } from './tools/rebuild-index.js';
 import { authTool } from './tools/auth.js';
-import { marketplaceSearchTool } from './tools/marketplace-search.js';
-import { marketplaceBuyTool } from './tools/marketplace-buy.js';
-import { marketplaceDownloadTool } from './tools/marketplace-download.js';
-import { marketplacePublishTool } from './tools/marketplace-publish.js';
+import { librarySearchTool } from './tools/library-search.js';
+import { libraryBuyTool } from './tools/library-buy.js';
+import { libraryDownloadTool } from './tools/library-download.js';
+import { libraryPublishTool } from './tools/library-publish.js';
+import { myBooksTool } from './tools/my-books.js';
+import { syncTool } from './tools/sync.js';
+import { sellerAnalyticsTool } from './tools/seller-analytics.js';
+import { rateBookTool } from './tools/rate-book.js';
+import { helpTool } from './tools/help.js';
 
 const server = new Server(
   {
@@ -69,24 +74,49 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: authTool.inputSchema,
       },
       {
-        name: marketplaceSearchTool.name,
-        description: marketplaceSearchTool.description,
-        inputSchema: marketplaceSearchTool.inputSchema,
+        name: librarySearchTool.name,
+        description: librarySearchTool.description,
+        inputSchema: librarySearchTool.inputSchema,
       },
       {
-        name: marketplaceBuyTool.name,
-        description: marketplaceBuyTool.description,
-        inputSchema: marketplaceBuyTool.inputSchema,
+        name: libraryBuyTool.name,
+        description: libraryBuyTool.description,
+        inputSchema: libraryBuyTool.inputSchema,
       },
       {
-        name: marketplaceDownloadTool.name,
-        description: marketplaceDownloadTool.description,
-        inputSchema: marketplaceDownloadTool.inputSchema,
+        name: libraryDownloadTool.name,
+        description: libraryDownloadTool.description,
+        inputSchema: libraryDownloadTool.inputSchema,
       },
       {
-        name: marketplacePublishTool.name,
-        description: marketplacePublishTool.description,
-        inputSchema: marketplacePublishTool.inputSchema,
+        name: libraryPublishTool.name,
+        description: libraryPublishTool.description,
+        inputSchema: libraryPublishTool.inputSchema,
+      },
+      {
+        name: myBooksTool.name,
+        description: myBooksTool.description,
+        inputSchema: myBooksTool.inputSchema,
+      },
+      {
+        name: syncTool.name,
+        description: syncTool.description,
+        inputSchema: syncTool.inputSchema,
+      },
+      {
+        name: sellerAnalyticsTool.name,
+        description: sellerAnalyticsTool.description,
+        inputSchema: sellerAnalyticsTool.inputSchema,
+      },
+      {
+        name: rateBookTool.name,
+        description: rateBookTool.description,
+        inputSchema: rateBookTool.inputSchema,
+      },
+      {
+        name: helpTool.name,
+        description: helpTool.description,
+        inputSchema: helpTool.inputSchema,
       },
     ],
   };
@@ -121,17 +151,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'auth':
         result = await authTool.handler(args);
         break;
-      case 'marketplace_search':
-        result = await marketplaceSearchTool.handler(args);
+      case 'library_search':
+        result = await librarySearchTool.handler(args);
         break;
-      case 'marketplace_buy':
-        result = await marketplaceBuyTool.handler(args);
+      case 'library_buy':
+        result = await libraryBuyTool.handler(args);
         break;
-      case 'marketplace_download':
-        result = await marketplaceDownloadTool.handler(args);
+      case 'library_download':
+        result = await libraryDownloadTool.handler(args);
         break;
-      case 'marketplace_publish':
-        result = await marketplacePublishTool.handler(args);
+      case 'library_publish':
+        result = await libraryPublishTool.handler(args);
+        break;
+      case 'my_books':
+        result = await myBooksTool.handler(args);
+        break;
+      case 'sync':
+        result = await syncTool.handler(args);
+        break;
+      case 'seller_analytics':
+        result = await sellerAnalyticsTool.handler();
+        break;
+      case 'rate_book':
+        result = await rateBookTool.handler(args);
+        break;
+      case 'help':
+        result = await helpTool.handler(args);
         break;
       default:
         throw new Error(`Unknown tool: ${name}`);

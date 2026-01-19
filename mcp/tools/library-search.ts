@@ -1,6 +1,6 @@
 // ============================================================================
-// Marketplace Search Tool
-// Search for books on the Telvok marketplace
+// Library Search Tool
+// Search for books in the Telvok library
 // ============================================================================
 
 const TELVOK_API_URL = process.env.TELVOK_API_URL || 'https://telvok.com';
@@ -27,7 +27,7 @@ interface SearchFilters {
 }
 
 interface SearchArgs {
-  query: string;
+  query?: string;  // Optional - empty returns all books (browse mode)
   filters?: SearchFilters;
   limit?: number;
 }
@@ -42,16 +42,16 @@ interface SearchResult {
 // Tool Definition
 // ============================================================================
 
-export const marketplaceSearchTool = {
-  name: 'marketplace_search',
-  description: `Search Telvok marketplace for knowledge books.
+export const librarySearchTool = {
+  name: 'library_search',
+  description: `Search Telvok library for knowledge books.
 
 Find books created by other users that you can import into your library.
 
 Examples:
-- marketplace_search({ query: "react hooks" })
-- marketplace_search({ query: "python", filters: { pricing: "open" } })
-- marketplace_search({ query: "auth", limit: 5 })
+- library_search({ query: "react hooks" })
+- library_search({ query: "python", filters: { pricing: "open" } })
+- library_search({ query: "auth", limit: 5 })
 
 Filters:
 - pricing: "open" (free), "one_time" (paid once), "subscription" (ongoing)
@@ -90,15 +90,11 @@ Filters:
         description: 'Maximum results to return (default: 10)',
       },
     },
-    required: ['query'],
+    required: [],  // Query is optional - empty returns all books (browse mode)
   },
 
   async handler(args: unknown): Promise<SearchResult> {
-    const { query, filters, limit = 10 } = args as SearchArgs;
-
-    if (!query || typeof query !== 'string') {
-      throw new Error('Query is required');
-    }
+    const { query = '', filters, limit = 10 } = args as SearchArgs;
 
     try {
       const response = await fetch(`${TELVOK_API_URL}/api/search`, {
@@ -119,10 +115,11 @@ Filters:
       const total = data.total || 0;
 
       if (books.length === 0) {
+        const queryMsg = query ? `for "${query}"` : 'matching your filters';
         return {
           books: [],
           total: 0,
-          message: `No books found for "${query}". Try different search terms or filters.`,
+          message: `No books found ${queryMsg}. Try different search terms or filters.`,
         };
       }
 
@@ -131,15 +128,16 @@ Filters:
         `${i + 1}. **${b.name}** (${b.price}) - ${b.entries} entries\n   ${b.description?.slice(0, 100)}${b.description?.length > 100 ? '...' : ''}`
       ).join('\n');
 
+      const queryMsg = query ? `for "${query}"` : 'in library';
       return {
         books,
         total,
-        message: `Found ${total} book(s) for "${query}":\n\n${summary}\n\nUse marketplace_import({ slug: "..." }) to import a book.`,
+        message: `Found ${total} book(s) ${queryMsg}:\n\n${summary}\n\nUse library_buy({ slug: "..." }) to purchase a book.`,
       };
 
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Marketplace search failed: ${message}`);
+      throw new Error(`Library search failed: ${message}`);
     }
   },
 };

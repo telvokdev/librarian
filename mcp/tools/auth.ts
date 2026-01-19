@@ -36,7 +36,7 @@ const MAX_POLL_ATTEMPTS = 120; // 10 minutes / 5 seconds
 
 export const authTool = {
   name: 'auth',
-  description: `Handle Telvok marketplace authentication.
+  description: `Handle Telvok library authentication.
 
 Use this to connect your agent to your Telvok account.
 

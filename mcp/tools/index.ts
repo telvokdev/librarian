@@ -5,3 +5,8 @@ export { markHitTool } from './mark-hit.js';
 export { importMemoriesTool } from './import-memories.js';
 export { rebuildIndexTool } from './rebuild-index.js';
 export { authTool, loadApiKey } from './auth.js';
+export { myBooksTool } from './my-books.js';
+export { syncTool } from './sync.js';
+export { sellerAnalyticsTool } from './seller-analytics.js';
+export { rateBookTool } from './rate-book.js';
+export { helpTool } from './help.js';

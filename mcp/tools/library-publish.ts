@@ -1,6 +1,6 @@
 // ============================================================================
 // Marketplace Publish Tool
-// Publish local entries as a book on Telvok marketplace
+// Publish local entries as a book on Telvok library
 // ============================================================================
 
 import * as fs from 'fs/promises';
@@ -23,6 +23,13 @@ interface PublishArgs {
     type: 'open' | 'one_time' | 'subscription';
     price_cents?: number;
   };
+  consumption?: 'inline' | 'reference' | 'download';
+  attestation?: {
+    original_work: boolean;
+    no_secrets: boolean;
+    terms_accepted: boolean;
+  };
+  preview?: boolean;
   entries?: string[];
   tags?: string[];
   license?: 'open' | 'open_attributed' | 'personal';
@@ -49,32 +56,45 @@ interface PublishResult {
   };
   entries_count?: number;
   setup_url?: string;
+  preview?: boolean;
+  summary?: {
+    name: string;
+    pricing: { type: string; display: string };
+    entries_count: number;
+    entries: Array<{ title: string; file: string }>;
+  };
+  next_steps?: string;
+  options?: Record<string, string>;
+  required?: Record<string, string>;
 }
 
 // ============================================================================
 // Tool Definition
 // ============================================================================
 
-export const marketplacePublishTool = {
-  name: 'marketplace_publish',
-  description: `Publish local entries as a book on Telvok marketplace.
+export const libraryPublishTool = {
+  name: 'library_publish',
+  description: `Publish local entries as a book on Telvok library.
 
 Collects entries from .librarian/local/ and publishes them as a book.
 Users can browse and purchase your book on telvok.com.
 
-Requirements:
-- Must be authenticated (run auth({ action: "login" }) first)
-- For paid books: Stripe Connect account required (setup via web)
+Required fields:
+- name: Book title
+- pricing: { type: "open" | "one_time" | "subscription", price_cents? }
+- consumption: How buyers access content ("inline" | "reference" | "download")
+- attestation: { original_work: true, no_secrets: true, terms_accepted: true }
 
-Pricing types:
-- "open": Free, downloadable by anyone
-- "one_time": Pay once, cloud-only access
-- "subscription": Monthly payment, cloud-only access
+Consumption types:
+- "inline": Full content in API responses (all pricing)
+- "reference": README + pointers to entries (all pricing)
+- "download": Download to local library (only for free/open books)
+
+Use preview: true to see what would be published without actually publishing.
 
 Examples:
-- marketplace_publish({ name: "React Best Practices", pricing: { type: "open" } })
-- marketplace_publish({ name: "Auth Patterns", pricing: { type: "one_time", price_cents: 999 }, tags: ["auth", "security"] })
-- marketplace_publish({ name: "My Insights", pricing: { type: "open" }, entries: ["stripe-webhooks.md", "token-validation.md"] })`,
+- Preview: library_publish({ name: "My Book", pricing: { type: "open" }, preview: true })
+- Publish: library_publish({ name: "My Book", pricing: { type: "open" }, consumption: "download", attestation: { original_work: true, no_secrets: true, terms_accepted: true } })`,
 
   inputSchema: {
     type: 'object' as const,
@@ -103,6 +123,25 @@ Examples:
         required: ['type'],
         description: 'Pricing configuration',
       },
+      consumption: {
+        type: 'string',
+        enum: ['inline', 'reference', 'download'],
+        description: 'How buyers access content. download only for free books.',
+      },
+      attestation: {
+        type: 'object',
+        properties: {
+          original_work: { type: 'boolean', description: 'Confirm this is original work' },
+          no_secrets: { type: 'boolean', description: 'Confirm no secrets/credentials' },
+          terms_accepted: { type: 'boolean', description: 'Accept library terms' },
+        },
+        required: ['original_work', 'no_secrets', 'terms_accepted'],
+        description: 'Required confirmations before publishing',
+      },
+      preview: {
+        type: 'boolean',
+        description: 'If true, show what would be published without publishing',
+      },
       entries: {
         type: 'array',
         items: { type: 'string' },
@@ -123,7 +162,7 @@ Examples:
   },
 
   async handler(args: unknown): Promise<PublishResult> {
-    const { name, description, pricing, entries: entryFilter, tags, license } = args as PublishArgs;
+    const { name, description, pricing, consumption, attestation, preview, entries: entryFilter, tags, license } = args as PublishArgs;
 
     // Validate name
     if (!name || typeof name !== 'string' || name.trim().length < 3) {
@@ -144,22 +183,95 @@ Examples:
       throw new Error('Paid books require price_cents >= 100 ($1.00)');
     }
 
-    // Check authentication
-    const apiKey = await loadApiKey();
-    if (!apiKey) {
-      return {
-        success: false,
-        message: 'Not authenticated. Run auth({ action: "login" }) to connect your Telvok account first.',
-      };
-    }
-
-    // Collect entries from local/
+    // Collect entries from local/ (needed for preview and publish)
     const collectedEntries = await collectLocalEntries(entryFilter);
 
     if (collectedEntries.length === 0) {
       return {
         success: false,
         message: 'No entries found in .librarian/local/. Use record() to create entries first.',
+      };
+    }
+
+    // Format pricing display
+    const pricingDisplay = pricing.type === 'open'
+      ? 'Free'
+      : `$${((pricing.price_cents || 0) / 100).toFixed(2)}`;
+
+    // Handle preview mode - return summary without publishing
+    if (preview) {
+      return {
+        success: true,
+        preview: true,
+        message: `Preview of "${name.trim()}" - NOT published`,
+        summary: {
+          name: name.trim(),
+          pricing: { type: pricing.type, display: pricingDisplay },
+          entries_count: collectedEntries.length,
+          entries: collectedEntries.map(e => ({
+            title: e.title,
+            file: path.basename(e.originalPath),
+          })),
+        },
+        next_steps: 'To publish, add consumption type and attestation fields.',
+      };
+    }
+
+    // Validate consumption type (required for actual publish)
+    if (!consumption) {
+      return {
+        success: false,
+        message: 'Consumption type required. Choose how buyers access your content:',
+        options: {
+          inline: 'Content returned in API responses (best for small entries)',
+          reference: 'README + pointers to entries (best for larger books)',
+          download: 'Download to local library (only for free/open books)',
+        },
+      };
+    }
+    if (!['inline', 'reference', 'download'].includes(consumption)) {
+      return {
+        success: false,
+        message: 'Invalid consumption type. Must be: inline, reference, or download',
+      };
+    }
+    if (consumption === 'download' && pricing.type !== 'open') {
+      return {
+        success: false,
+        message: 'Download is only for free books. Paid content uses inline or reference.',
+        next_steps: "Use pricing.type: 'open' for download, or consumption: 'inline'/'reference' for paid.",
+      };
+    }
+
+    // Validate attestation (required for actual publish)
+    if (!attestation) {
+      return {
+        success: false,
+        message: 'Attestation required. Please confirm:',
+        required: {
+          original_work: 'This is my original work or I have rights to publish',
+          no_secrets: 'Contains no secrets, credentials, or sensitive data',
+          terms_accepted: 'I accept the Telvok library terms',
+        },
+      };
+    }
+    const failedAttestations: string[] = [];
+    if (!attestation.original_work) failedAttestations.push('original_work');
+    if (!attestation.no_secrets) failedAttestations.push('no_secrets');
+    if (!attestation.terms_accepted) failedAttestations.push('terms_accepted');
+    if (failedAttestations.length > 0) {
+      return {
+        success: false,
+        message: `All attestation fields must be true to publish. Failed: ${failedAttestations.join(', ')}`,
+      };
+    }
+
+    // Check authentication
+    const apiKey = await loadApiKey();
+    if (!apiKey) {
+      return {
+        success: false,
+        message: 'Not authenticated. Run auth({ action: "login" }) to connect your Telvok account first.',
       };
     }
 
@@ -178,14 +290,11 @@ Examples:
       name: name.trim(),
       description: description?.trim(),
       pricing,
+      consumption,
       entries: apiEntries,
       tags: tags || [],
       license_type: license || 'personal',
-      attestation: {
-        original_work: true,
-        no_secrets: true,
-        terms_accepted: true,
-      },
+      attestation,
     };
 
     try {
@@ -356,4 +465,4 @@ function extractSections(body: string): { main: string; reasoning?: string; exam
 // Export
 // ============================================================================
 
-export default marketplacePublishTool;
+export default libraryPublishTool;

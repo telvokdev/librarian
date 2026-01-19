@@ -1,7 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import matter from 'gray-matter';
-import { getLibraryPath, getImportedPath, getLocalPath } from '../library/storage.js';
+import { getLibraryPath, getImportedPath, getLocalPath, getPackagesPath } from '../library/storage.js';
 
 // ============================================================================
 // Types
@@ -56,24 +56,32 @@ Examples:
 
     const libraryPath = getLibraryPath();
     const importedPath = getImportedPath(libraryPath);
+    const packagesPath = getPackagesPath(libraryPath);
     const localPath = getLocalPath(libraryPath);
 
-    // Normalize path: strip "imported/" prefix if present, add .md if missing
+    // Normalize path: strip "imported/" or "packages/" prefix if present, add .md if missing
     let normalizedPath = entryPath;
     if (normalizedPath.startsWith('imported/')) {
       normalizedPath = normalizedPath.slice('imported/'.length);
+    } else if (normalizedPath.startsWith('packages/')) {
+      normalizedPath = normalizedPath.slice('packages/'.length);
     }
     if (!normalizedPath.endsWith('.md')) {
       normalizedPath += '.md';
     }
 
-    const sourcePath = path.join(importedPath, normalizedPath);
-
-    // Check if source exists
+    // Try both imported/ and packages/ paths
+    let sourcePath = path.join(importedPath, normalizedPath);
     try {
       await fs.access(sourcePath);
     } catch {
-      throw new Error(`Entry not found: ${entryPath}`);
+      // Try packages path (for library downloads)
+      sourcePath = path.join(packagesPath, normalizedPath);
+      try {
+        await fs.access(sourcePath);
+      } catch {
+        throw new Error(`Entry not found: ${entryPath}`);
+      }
     }
 
     // Read source file

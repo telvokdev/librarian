@@ -42,20 +42,20 @@ interface DownloadResult {
 // Tool Definition
 // ============================================================================
 
-export const marketplaceDownloadTool = {
-  name: 'marketplace_download',
+export const libraryDownloadTool = {
+  name: 'library_download',
   description: `Download a FREE (open) book to your local library.
 
 Downloads content from free/open books to .librarian/packages/{slug}/ for offline access.
 
 NOTE: Paid books (one-time or subscription) cannot be downloaded - they are cloud-only
-for IP protection. Use brief({ query: "...", include_marketplace: true }) to access
+for IP protection. Use brief({ query: "...", include_library: true }) to access
 content from paid books you own.
 
 Requires authentication and ownership (purchased or free).
 
 Examples:
-- marketplace_download({ slug: "react-best-practices" })`,
+- library_download({ slug: "react-best-practices" })`,
 
   inputSchema: {
     type: 'object' as const,
@@ -107,7 +107,7 @@ Examples:
       if (pricingType && pricingType !== 'open') {
         return {
           success: false,
-          message: `Paid content cannot be downloaded locally. '${data.book.name}' is a ${pricingType === 'subscription' ? 'subscription' : 'paid'} book.\n\nTo access content from paid books, use:\n  brief({ query: "your search", include_marketplace: true })`,
+          message: `Paid content cannot be downloaded locally. '${data.book.name}' is a ${pricingType === 'subscription' ? 'subscription' : 'paid'} book.\n\nTo access content from paid books, use:\n  brief({ query: "your search", include_library: true })`,
         };
       }
 
@@ -180,7 +180,7 @@ function formatEntry(entry: BookEntry): string {
   if (entry.intent) lines.push(`intent: "${entry.intent.replace(/"/g, '\\"')}"`);
   if (entry.context) lines.push(`context: "${entry.context.replace(/"/g, '\\"')}"`);
   lines.push(`created: "${new Date().toISOString()}"`);
-  lines.push('source: "marketplace"');
+  lines.push('source: "library"');
   lines.push('hits: 0');
   lines.push('last_hit: null');
   lines.push('---');
