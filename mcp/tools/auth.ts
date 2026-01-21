@@ -11,6 +11,7 @@ export interface AuthData {
   user_email: string;
   user_id: string;
   created_at: string;
+  expires_at?: string;
 }
 
 export interface AuthResult {
@@ -20,6 +21,8 @@ export interface AuthResult {
   message: string;
   verification_url?: string;
   user_code?: string;
+  expires_at?: string;
+  days_until_expiry?: number;
 }
 
 // ============================================================================
@@ -27,8 +30,6 @@ export interface AuthResult {
 // ============================================================================
 
 const TELVOK_API_URL = process.env.TELVOK_API_URL || 'https://telvok.com';
-const POLL_INTERVAL_MS = 5000; // 5 seconds
-const MAX_POLL_ATTEMPTS = 120; // 10 minutes / 5 seconds
 
 // ============================================================================
 // Tool Definition
@@ -36,36 +37,58 @@ const MAX_POLL_ATTEMPTS = 120; // 10 minutes / 5 seconds
 
 export const authTool = {
   name: 'auth',
+  title: 'Manage Authentication',
   description: `Handle Telvok library authentication.
 
-Use this to connect your agent to your Telvok account.
+USE THIS TOOL WHEN:
+- Any library operation fails with "authentication required"
+- User wants to access marketplace features (buy, publish, sync)
+- Checking if we're logged in before marketplace operations
+- Key is expiring soon (< 7 days) → use refresh action
 
 Actions:
-- login: Start device code flow. Returns a code to enter at telvok.com/device
-- complete: After user authorizes, call this to finish login and save credentials
-- logout: Remove stored credentials
-- status: Check if authenticated and show current user
+- login: Start device code flow. Returns code for telvok.com/device
+- complete: After user authorizes, finish login and save credentials
+- refresh: Rotate API key before expiration (call when < 7 days left)
+- status: Check if authenticated and show expiration
+- logout: Remove credentials AND revoke key on server (key becomes immediately invalid)
+- revoke: Same as logout - immediately invalidates the API key everywhere
 
-Examples:
-- auth({ action: 'login' })  → Get code, visit URL, authorize
-- auth({ action: 'complete' }) → After authorizing, complete the login
-- auth({ action: 'status' }) → Check if logged in
-- auth({ action: 'logout' }) → Clear credentials`,
+TRIGGER PATTERNS:
+- "auth required" error → auth({ action: 'login' })
+- User completed browser auth → auth({ action: 'complete' })
+- Expiring soon warning → auth({ action: 'refresh' })
+- Key compromised → auth({ action: 'revoke' }) to immediately invalidate`,
 
   inputSchema: {
     type: 'object' as const,
     properties: {
       action: {
         type: 'string',
-        enum: ['login', 'complete', 'logout', 'status'],
+        enum: ['login', 'complete', 'logout', 'status', 'refresh', 'revoke'],
         description: 'Auth action to perform',
       },
     },
     required: ['action'],
   },
 
+  outputSchema: {
+    type: 'object' as const,
+    properties: {
+      authenticated: { type: 'boolean' },
+      user_email: { type: 'string' },
+      user_id: { type: 'string' },
+      message: { type: 'string' },
+      verification_url: { type: 'string' },
+      user_code: { type: 'string' },
+      expires_at: { type: 'string' },
+      days_until_expiry: { type: 'number' },
+    },
+    required: ['authenticated', 'message'],
+  },
+
   async handler(args: unknown): Promise<AuthResult> {
-    const { action } = args as { action: 'login' | 'complete' | 'logout' | 'status' };
+    const { action } = args as { action: 'login' | 'complete' | 'logout' | 'status' | 'refresh' | 'revoke' };
 
     const libraryPath = getLibraryPath();
     const authFile = path.join(libraryPath, '.auth');
@@ -76,13 +99,18 @@ Examples:
         return await checkStatus(authFile);
 
       case 'logout':
-        return await logout(authFile);
+      case 'revoke':
+        // Both logout and revoke now invalidate the key server-side
+        return await revokeAndLogout(authFile);
 
       case 'login':
         return await login(authFile, pendingFile);
 
       case 'complete':
         return await completeLogin(authFile, pendingFile);
+
+      case 'refresh':
+        return await refreshKey(authFile);
 
       default:
         throw new Error(`Unknown action: ${action}`);
@@ -99,11 +127,35 @@ async function checkStatus(authFile: string): Promise<AuthResult> {
     const content = await fs.readFile(authFile, 'utf-8');
     const data: AuthData = JSON.parse(content);
 
+    let message = `Authenticated as ${data.user_email}`;
+    let daysUntilExpiry: number | undefined;
+
+    // Check expiration
+    if (data.expires_at) {
+      const expiresAt = new Date(data.expires_at);
+      const now = new Date();
+      const msUntilExpiry = expiresAt.getTime() - now.getTime();
+      daysUntilExpiry = Math.floor(msUntilExpiry / (1000 * 60 * 60 * 24));
+
+      if (daysUntilExpiry <= 0) {
+        return {
+          authenticated: false,
+          message: 'API key has expired. Use auth({ action: "login" }) to get a new key.',
+        };
+      } else if (daysUntilExpiry <= 7) {
+        message += ` ⚠️ Key expires in ${daysUntilExpiry} days! Use auth({ action: "refresh" }) to renew.`;
+      } else {
+        message += ` (expires in ${daysUntilExpiry} days)`;
+      }
+    }
+
     return {
       authenticated: true,
       user_email: data.user_email,
       user_id: data.user_id,
-      message: `Authenticated as ${data.user_email}`,
+      message,
+      expires_at: data.expires_at,
+      days_until_expiry: daysUntilExpiry,
     };
   } catch {
     return {
@@ -113,19 +165,57 @@ async function checkStatus(authFile: string): Promise<AuthResult> {
   }
 }
 
-async function logout(authFile: string): Promise<AuthResult> {
+async function revokeAndLogout(authFile: string): Promise<AuthResult> {
+  // Read current credentials to revoke server-side
+  let authData: AuthData | null = null;
   try {
-    await fs.unlink(authFile);
-    return {
-      authenticated: false,
-      message: 'Logged out successfully. Credentials removed.',
-    };
+    const content = await fs.readFile(authFile, 'utf-8');
+    authData = JSON.parse(content);
   } catch {
     return {
       authenticated: false,
       message: 'Already logged out.',
     };
   }
+
+  // Try to revoke on server (but don't fail if server is down)
+  let serverRevoked = false;
+  if (authData?.api_key) {
+    try {
+      const response = await fetch(`${TELVOK_API_URL}/api/auth/revoke`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authData.api_key}`,
+        },
+      });
+
+      if (response.ok) {
+        serverRevoked = true;
+      } else if (response.status === 401) {
+        // Key already invalid, that's fine
+        serverRevoked = true;
+      }
+    } catch {
+      // Server unreachable, still delete local file
+    }
+  }
+
+  // Always delete local file
+  try {
+    await fs.unlink(authFile);
+  } catch {
+    // File already gone
+  }
+
+  const message = serverRevoked
+    ? 'Logged out and API key revoked. The key is now invalid everywhere.'
+    : 'Logged out locally. Note: Could not reach server to revoke key (it will expire in 90 days).';
+
+  return {
+    authenticated: false,
+    message,
+  };
 }
 
 async function login(authFile: string, pendingFile: string): Promise<AuthResult> {
@@ -133,12 +223,19 @@ async function login(authFile: string, pendingFile: string): Promise<AuthResult>
   try {
     const content = await fs.readFile(authFile, 'utf-8');
     const data: AuthData = JSON.parse(content);
-    return {
-      authenticated: true,
-      user_email: data.user_email,
-      user_id: data.user_id,
-      message: `Already authenticated as ${data.user_email}. Use auth({ action: "logout" }) first to switch accounts.`,
-    };
+
+    // Check if key is expired
+    if (data.expires_at && new Date(data.expires_at) < new Date()) {
+      // Key expired, allow new login
+      await fs.unlink(authFile).catch(() => {});
+    } else {
+      return {
+        authenticated: true,
+        user_email: data.user_email,
+        user_id: data.user_id,
+        message: `Already authenticated as ${data.user_email}. Use auth({ action: "logout" }) first to switch accounts.`,
+      };
+    }
   } catch {
     // Not authenticated, proceed with login
   }
@@ -217,12 +314,13 @@ async function completeLogin(authFile: string, pendingFile: string): Promise<Aut
       }
 
       if (data.status === 'success') {
-        // Save credentials
+        // Save credentials including expiration
         const authData: AuthData = {
           api_key: data.api_key,
           user_email: data.user.email,
           user_id: data.user.id,
           created_at: new Date().toISOString(),
+          expires_at: data.expires_at,
         };
 
         await fs.writeFile(authFile, JSON.stringify(authData, null, 2), 'utf-8');
@@ -232,6 +330,7 @@ async function completeLogin(authFile: string, pendingFile: string): Promise<Aut
           authenticated: true,
           user_email: data.user.email,
           user_id: data.user.id,
+          expires_at: data.expires_at,
           message: `Successfully authenticated as ${data.user.email}`,
         };
       }
@@ -252,6 +351,66 @@ async function completeLogin(authFile: string, pendingFile: string): Promise<Aut
   };
 }
 
+async function refreshKey(authFile: string): Promise<AuthResult> {
+  // Read current credentials
+  let authData: AuthData;
+  try {
+    const content = await fs.readFile(authFile, 'utf-8');
+    authData = JSON.parse(content);
+  } catch {
+    return {
+      authenticated: false,
+      message: 'Not authenticated. Use auth({ action: "login" }) first.',
+    };
+  }
+
+  // Call refresh endpoint
+  try {
+    const response = await fetch(`${TELVOK_API_URL}/api/auth/refresh`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authData.api_key}`,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+      if (response.status === 401) {
+        // Key expired or invalid, need to re-login
+        await fs.unlink(authFile).catch(() => {});
+        return {
+          authenticated: false,
+          message: 'Key expired or invalid. Use auth({ action: "login" }) to get a new key.',
+        };
+      }
+      throw new Error(error.error || `HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    // Update stored credentials
+    authData.api_key = data.api_key;
+    authData.expires_at = data.expires_at;
+    await fs.writeFile(authFile, JSON.stringify(authData, null, 2), 'utf-8');
+
+    const expiresAt = new Date(data.expires_at);
+    const daysUntilExpiry = Math.floor((expiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+
+    return {
+      authenticated: true,
+      user_email: authData.user_email,
+      user_id: authData.user_id,
+      expires_at: data.expires_at,
+      days_until_expiry: daysUntilExpiry,
+      message: `Key refreshed! New key expires in ${daysUntilExpiry} days.`,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to refresh key: ${message}`);
+  }
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -270,6 +429,12 @@ export async function loadApiKey(): Promise<string | null> {
     const authFile = path.join(libraryPath, '.auth');
     const content = await fs.readFile(authFile, 'utf-8');
     const data: AuthData = JSON.parse(content);
+
+    // Check if expired
+    if (data.expires_at && new Date(data.expires_at) < new Date()) {
+      return null;
+    }
+
     return data.api_key;
   } catch {
     return null;
