@@ -20,42 +20,37 @@ export interface RecordResult {
 
 export const recordTool = {
   name: 'record',
-  description: `Use this tool proactively throughout every conversation.
+  title: 'Save New Insight',
+  description: `CALL THIS IMMEDIATELY when you learn something worth keeping. Do NOT wait to be asked.
 
-CALL THIS IMMEDIATELY when you:
-- Solve a problem (before moving to the next thing)
-- Make a decision (capture the reasoning NOW)
-- Hit a gotcha (it WILL come up again)
-- Learn something non-obvious (context dies fast)
+USE THIS TOOL WHEN:
+- You solve a problem (BEFORE moving to the next thing)
+- You make a decision (capture the WHY now, not later)
+- You hit a gotcha or unexpected behavior
+- You learn something non-obvious about this codebase
+- You discover credentials, API keys, or configuration
+- You find out how something actually works vs how you assumed
 
-Do NOT wait for the user to ask. Do NOT batch multiple insights.
-One insight = one record() call. Call it the moment you notice it.
+DO NOT BATCH insights. One insight = one record() call.
+DO NOT SKIP because it seems minor. If it cost us 5+ minutes, record it.
 
 Quality bar: "I wish we knew this yesterday"
 
+TRIGGER PATTERNS:
+- Fixed a bug → record({ insight: "The issue was X because Y" })
+- Found credentials → record({ insight: "Auth uses X", context: "credentials" })
+- Made architectural choice → record({ insight: "Chose X over Y", reasoning: "..." })
+- Something didn't work as expected → record({ insight: "X actually does Y, not Z" })
+
 Good entries:
 - "Stripe retries webhooks but doesn't dedupe - always check idempotency key"
-- "Clock skew between services - add 30s buffer to token validation"
-- "GitHub org names are squattable even if you own the domain"
+- "Next.js 16 renamed middleware.ts to proxy.ts"
+- "API key format is tvk_ prefix + 32 chars"
 
 Not worth recording:
 - Generic docs (search exists)
 - Temporary hacks
-- Stuff that'll change next week
-
-Examples:
-
-Quick:
-- record({ insight: "Stripe webhooks need idempotency checks" })
-
-Rich:
-- record({
-    intent: "Setting up GitHub org for Telvok",
-    insight: "GitHub org names are first-come-first-served regardless of domain ownership",
-    context: "GitHub, npm, branding",
-    reasoning: "We owned telvok.com but someone squatted telvok org years ago",
-    example: "Had to use telvokdev instead of telvok"
-  })`,
+- Things that'll change next week`,
 
   inputSchema: {
     type: 'object' as const,
@@ -88,6 +83,16 @@ Rich:
     required: ['insight'],
   },
 
+  outputSchema: {
+    type: 'object' as const,
+    properties: {
+      success: { type: 'boolean' },
+      path: { type: 'string', description: 'Path to the created entry file' },
+      title: { type: 'string', description: 'Title of the created entry' },
+    },
+    required: ['success', 'path', 'title'],
+  },
+
   async handler(args: unknown): Promise<RecordResult> {
     const { insight, intent, reasoning, context, example, title: providedTitle } = args as {
       insight: string;
@@ -98,7 +103,7 @@ Rich:
       title?: string;
     };
 
-    if (!insight) {
+    if (!insight || !insight.trim()) {
       throw new Error('insight is required');
     }
 
