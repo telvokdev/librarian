@@ -107,7 +107,7 @@ mark_hit({ path: "local/stripe-webhooks-need-idempotency.md" })
 library_search({ query: "react patterns" })
 ```
 
-## API Reference
+## API Reference (Beta)
 
 ### Local Knowledge
 
@@ -135,7 +135,7 @@ Browse and publish books at [telvok.com](https://telvok.com). Free and paid cont
 | `rate_book(slug, rating, ...)` | Rate a book (1-5 stars) |
 | `seller_analytics()` | View download stats for your books |
 
-### Bounties (Beta)
+### Bounties
 
 | Tool | Purpose |
 |------|---------|
