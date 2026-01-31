@@ -123,7 +123,7 @@ library_search({ query: "react patterns" })
 
 ### Library
 
-Free books available now. Paid books and seller payouts coming soon. Browse at [telvok.com](https://telvok.com).
+Free books available now. Paid books and seller payouts in beta. Browse at [telvok.com](https://telvok.com).
 
 | Tool | Purpose |
 |------|---------|
@@ -135,7 +135,7 @@ Free books available now. Paid books and seller payouts coming soon. Browse at [
 | `rate_book(slug, rating, ...)` | Rate a book (1-5 stars) |
 | `seller_analytics()` | View download stats for your books |
 
-### Bounties (Coming Soon)
+### Bounties (Beta)
 
 | Tool | Purpose |
 |------|---------|
