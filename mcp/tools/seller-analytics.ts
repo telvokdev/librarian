@@ -11,6 +11,18 @@ const TELVOK_API_URL = process.env.TELVOK_API_URL || 'https://telvok.com';
 // Types
 // ============================================================================
 
+interface EntryStats {
+  id: string;
+  title: string;
+  hits: number;
+  trend: string;
+}
+
+interface SearchTermStats {
+  term: string;
+  count: number;
+}
+
 interface LibraryStats {
   id: string;
   name: string;
@@ -19,6 +31,14 @@ interface LibraryStats {
   downloads: number;
   hits: number;
   rating: number | null;
+  topEntries?: EntryStats[];
+  searchTerms?: SearchTermStats[];
+}
+
+interface GhostModeInsights {
+  totalSearches: number;
+  uniqueSearchTerms: number;
+  zeroResultSearches: SearchTermStats[];
 }
 
 interface RecentReview {
@@ -45,6 +65,7 @@ interface AnalyticsResponse {
   };
   byLibrary: LibraryStats[];
   recentReviews: RecentReview[];
+  insights?: GhostModeInsights;
 }
 
 interface SellerAnalyticsResult {
@@ -63,6 +84,8 @@ interface SellerAnalyticsResult {
     downloads: number;
     hits: number;
     rating: string;
+    topEntries?: Array<{ title: string; hits: number; trend: string }>;
+    searchTerms?: Array<{ term: string; count: number }>;
   }>;
   recent_reviews?: Array<{
     book: string;
@@ -70,6 +93,71 @@ interface SellerAnalyticsResult {
     title: string;
     reviewer: string;
   }>;
+  insights?: {
+    totalSearches: number;
+    uniqueSearchTerms: number;
+    gapAnalysis?: Array<{ term: string; count: number }>;
+  };
+}
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+function formatGhostModeMessage(data: AnalyticsResponse): string {
+  const lines: string[] = [];
+
+  lines.push(`Analytics for ${data.overview.libraryCount} book${data.overview.libraryCount === 1 ? '' : 's'}`);
+  lines.push('');
+  lines.push(`Overview:`);
+  lines.push(`  Revenue: $${data.overview.revenue.toFixed(2)}`);
+  lines.push(`  Downloads: ${data.overview.downloads}`);
+  lines.push(`  Hits: ${data.overview.hits}`);
+  if (data.overview.avgRating) {
+    lines.push(`  Avg Rating: ${data.overview.avgRating}/5`);
+  }
+
+  // Per-book breakdown with Ghost Mode data
+  if (data.byLibrary.length > 0) {
+    lines.push('');
+    lines.push('━'.repeat(40));
+
+    for (const book of data.byLibrary) {
+      lines.push('');
+      lines.push(`📚 ${book.name} - $${book.revenue.toFixed(2)} - ${book.hits} hits`);
+
+      // Top entries
+      if (book.topEntries && book.topEntries.length > 0) {
+        lines.push('');
+        lines.push('  Top Entries:');
+        book.topEntries.slice(0, 5).forEach((entry, i) => {
+          lines.push(`    ${i + 1}. ${entry.title} - ${entry.hits} hits (${entry.trend})`);
+        });
+      }
+
+      // Search terms
+      if (book.searchTerms && book.searchTerms.length > 0) {
+        lines.push('');
+        lines.push('  Users searched for:');
+        book.searchTerms.slice(0, 5).forEach(term => {
+          lines.push(`    • "${term.term}" (${term.count} queries)`);
+        });
+      }
+    }
+  }
+
+  // Gap analysis
+  if (data.insights?.zeroResultSearches && data.insights.zeroResultSearches.length > 0) {
+    lines.push('');
+    lines.push('━'.repeat(40));
+    lines.push('');
+    lines.push('💡 Gap Analysis (searches with no results):');
+    data.insights.zeroResultSearches.slice(0, 5).forEach(z => {
+      lines.push(`    • "${z.term}" (${z.count} searches)`);
+    });
+  }
+
+  return lines.join('\n');
 }
 
 // ============================================================================
@@ -78,16 +166,22 @@ interface SellerAnalyticsResult {
 
 export const sellerAnalyticsTool = {
   name: 'seller_analytics',
-  description: `View your seller analytics - revenue, downloads, hits, and ratings for your published books.
+  title: 'View Seller Analytics',
+  description: `View seller analytics for your published books.
 
-Shows:
-- Overview: Total revenue (after 15% platform fee), downloads, hits, average rating
-- Per-book breakdown: Revenue, downloads, hits, rating for each book
-- Recent reviews: Latest reviews on your books
+USE THIS TOOL WHEN:
+- User asks "how are my books doing" or "show my sales"
+- Checking revenue, downloads, or ratings
+- User wants to see which entries are most useful (Ghost Mode data)
 
-Requires authentication. Run auth({ action: "login" }) first if not connected.
+Shows revenue, downloads, hits, ratings, top entries, and search terms.
 
-Examples:
+TRIGGER PATTERNS:
+- "How are my books selling?" → seller_analytics()
+- "Show my revenue" → seller_analytics()
+- "What are people searching for?" → seller_analytics() (shows search terms)
+
+Example:
 - seller_analytics() - View all your analytics`,
 
   inputSchema: {
@@ -140,10 +234,10 @@ Examples:
         };
       }
 
-      // Format for terminal display
-      return {
+      // Format for terminal display with Ghost Mode data
+      const result: SellerAnalyticsResult = {
         success: true,
-        message: `Analytics for ${data.overview.libraryCount} book${data.overview.libraryCount === 1 ? '' : 's'}`,
+        message: formatGhostModeMessage(data),
         overview: {
           revenue: `$${data.overview.revenue.toFixed(2)}`,
           downloads: data.overview.downloads,
@@ -157,6 +251,15 @@ Examples:
           downloads: b.downloads,
           hits: b.hits,
           rating: b.rating ? `${b.rating}/5` : 'No ratings',
+          topEntries: b.topEntries?.slice(0, 5).map(e => ({
+            title: e.title,
+            hits: e.hits,
+            trend: e.trend,
+          })),
+          searchTerms: b.searchTerms?.slice(0, 5).map(t => ({
+            term: t.term,
+            count: t.count,
+          })),
         })),
         recent_reviews: data.recentReviews.slice(0, 5).map(r => ({
           book: r.library.name,
@@ -165,6 +268,20 @@ Examples:
           reviewer: r.reviewer?.name || 'Anonymous',
         })),
       };
+
+      // Add Ghost Mode insights if available
+      if (data.insights) {
+        result.insights = {
+          totalSearches: data.insights.totalSearches,
+          uniqueSearchTerms: data.insights.uniqueSearchTerms,
+          gapAnalysis: data.insights.zeroResultSearches?.slice(0, 10).map(z => ({
+            term: z.term,
+            count: z.count,
+          })),
+        };
+      }
+
+      return result;
 
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

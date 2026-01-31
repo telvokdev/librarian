@@ -10,6 +10,82 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "mcp__plugin_librarian_librarian__library_publish",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '\\n⚠️  PUBLISHING ATTESTATION REQUIRED\\n\\nBefore publishing, you MUST confirm with the user:\\n  ✓ This is original work (or they have rights to publish)\\n  ✓ No secrets, credentials, or sensitive data included\\n  ✓ Terms of service accepted\\n\\nDo NOT auto-confirm. Ask the user explicitly.\\n'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__plugin_librarian_librarian__record",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf 'New entry recorded. The semantic index will include it on next rebuild_index() call.'"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__plugin_librarian_librarian__sync",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf 'Sync complete. Run rebuild_index() if you want new content to appear in semantic search.'"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__plugin_librarian_librarian__import_memories",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf 'Import complete. Run rebuild_index() to make imported entries searchable via semantic search.'"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__plugin_librarian_librarian__delete",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf 'Entry deleted. Run rebuild_index() to remove stale embeddings from the search index.'"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__plugin_librarian_librarian__library_buy",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf 'Purchase initiated. After completing payment, run sync() to download the content.'"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__plugin_librarian_librarian__auth",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf 'Auth action complete. Run auth({ action: \"status\" }) to verify your connection.'"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__plugin_librarian_librarian__library_publish",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf 'Book published! Share the link or check seller_analytics() to track performance.'"
+          }
+        ]
+      }
     ]
   }
 }

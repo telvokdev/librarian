@@ -57,20 +57,26 @@ interface SyncResult {
 
 export const syncTool = {
   name: 'sync',
-  description: `Check for and receive updates to owned books from Telvok library.
+  title: 'Sync Purchased Books',
+  description: `Check for and receive updates to purchased books.
 
-Checks all purchased/claimed books for new or modified content since last sync.
+USE THIS TOOL WHEN:
+- User asks to update/sync their purchased books
+- Starting a session and marketplace content might have changed
+- Checking if owned books have new entries
 
-Sync preferences:
-- "auto": Synced automatically (default)
-- "manual": Shows as available, requires force: true to sync
-- "pinned": Never synced, locked to specific version
+Subscription books sync automatically. One-time purchases sync on request.
+
+TRIGGER PATTERNS:
+- "Update my books" → sync()
+- "Check for new content" → sync()
+- "Sync that book" → sync({ slug: "book-slug" })
+- Force sync manual books → sync({ options: { force: true } })
 
 Examples:
 - sync() - Check and sync all auto-sync books
 - sync({ slug: "premium-patterns" }) - Sync specific book
-- sync({ options: { force: true } }) - Include manual preference books
-- sync({ slug: "free-book", options: { download: true } }) - Download open book updates`,
+- sync({ options: { force: true } }) - Include manual preference books`,
 
   inputSchema: {
     type: 'object' as const,

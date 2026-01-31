@@ -19,14 +19,23 @@ export interface AdoptResult {
 
 export const adoptTool = {
   name: 'adopt',
-  description: `Make imported knowledge ours.
+  title: 'Adopt Imported Entry',
+  description: `Move an imported/packages entry to local library for editing.
 
-When an entry from an imported package proves useful, adopt it into our
-local library. It graduates from "their knowledge" to "our knowledge" -
-now we can edit and evolve it.
+USE THIS TOOL WHEN:
+- An imported entry is useful but needs customization
+- Want to evolve third-party knowledge with our learnings
+- Entry from packages/ or imported/ should become our own
+
+Copies to local/ where we can edit it. Original stays in place.
+
+TRIGGER PATTERNS:
+- Entry from brief() needs edits → adopt({ path: "..." })
+- "Make that entry ours" → adopt({ path: "...", title: "Our version" })
+- Want to customize purchased content → adopt({ path: "packages/..." })
 
 Examples:
-- adopt({ path: "imported/stripe-patterns/webhook-idempotency" })
+- adopt({ path: "packages/stripe-patterns/webhook-idempotency" })
 - adopt({ path: "imported/auth-patterns/token-refresh", title: "Our token refresh" })`,
 
   inputSchema: {
@@ -71,12 +80,19 @@ Examples:
     }
 
     // Try both imported/ and packages/ paths
-    let sourcePath = path.join(importedPath, normalizedPath);
+    let sourcePath = path.resolve(importedPath, normalizedPath);
+    // Prevent path traversal
+    if (!sourcePath.startsWith(path.resolve(importedPath)) && !sourcePath.startsWith(path.resolve(packagesPath))) {
+      throw new Error('Invalid path: must be within imported/ or packages/');
+    }
     try {
       await fs.access(sourcePath);
     } catch {
       // Try packages path (for library downloads)
-      sourcePath = path.join(packagesPath, normalizedPath);
+      sourcePath = path.resolve(packagesPath, normalizedPath);
+      if (!sourcePath.startsWith(path.resolve(packagesPath))) {
+        throw new Error('Invalid path: must be within imported/ or packages/');
+      }
       try {
         await fs.access(sourcePath);
       } catch {

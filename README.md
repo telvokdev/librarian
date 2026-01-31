@@ -1,49 +1,20 @@
 # Librarian
 
-**The memory layer your AI should've had from day one.**
+[![npm version](https://img.shields.io/npm/v/@telvok/librarian-mcp.svg)](https://www.npmjs.com/package/@telvok/librarian-mcp)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Downloads](https://img.shields.io/npm/dm/@telvok/librarian-mcp.svg)](https://www.npmjs.com/package/@telvok/librarian-mcp)
 
----
+A knowledge management MCP server for AI coding assistants. Capture insights, search with semantic understanding, and access a marketplace of developer knowledge.
 
-How many hours have you lost?
-
-Context windows that forget everything. Compaction that deletes the crucial detail. The same mistake, repeated across sessions, because your AI partner has the memory of a goldfish.
-
-You've tried everything. "Remember this." "Pretend you are an expert who never forgets." "Please, I'm begging you, don't lose this context again."
-
-It doesn't work. It was never going to work.
-
-**Librarian fixes this.**
-
----
-
-## Features
-
-- Semantic search with local AI embeddings (no API calls, fully offline)
-- Import memories from other AI tools (Anthropic MCP Memory, Obsidian, Cursor, etc.)
-- Smart ranking that balances recency and popularity
-- Hit tracking to surface proven knowledge
-- Works with any MCP client (Claude Code, Cursor, Windsurf, Claude Desktop)
-
----
-
-## Install
+## Installation
 
 ### Claude Code
 
-**Option 1: MCP Add (simplest)**
 ```bash
 claude mcp add librarian -- npx @telvok/librarian-mcp
 ```
 
-**Option 2: Plugin Marketplace**
-```bash
-/plugin marketplace add telvokdev/librarian
-/plugin install librarian@librarian
-```
-
 ### Any MCP Client
-
-Add to your MCP settings:
 
 ```json
 {
@@ -56,193 +27,132 @@ Add to your MCP settings:
 }
 ```
 
-### Global Install (optional)
+### Global Install
 
 ```bash
-npm i -g @telvok/librarian-mcp
+npm install -g @telvok/librarian-mcp
 ```
 
----
-
-## API
-
-### Tools
-
-- **brief**
-  - Search your library before diving in
-  - Input:
-    - `query` (string, optional): Natural language search query
-    - `limit` (number, optional): Max results (default: 5)
-  - Returns matching entries ranked by semantic similarity, recency, and hits
-  - Falls back to keyword search if no query provided
-
-- **record**
-  - Capture knowledge worth keeping
-  - Input:
-    - `insight` (string, required): The knowledge to save
-    - `intent` (string, optional): What you were trying to accomplish
-    - `context` (string, optional): Topic or when this applies
-    - `reasoning` (string, optional): Why this works
-    - `example` (string, optional): Code snippet or illustration
-    - `title` (string, optional): Entry title (auto-generated if not provided)
-  - Automatically generates embeddings for semantic search
-
-- **import_memories**
-  - Import from other AI tools into Librarian
-  - Input:
-    - `format` (string, required): `"jsonl"` | `"markdown"` | `"cursor"` | `"json"` | `"sqlite"`
-    - `path` (string, required): Path to file or folder
-    - `source_name` (string, optional): Folder name for imported entries
-  - Automatically indexes imported entries for semantic search
-
-- **adopt**
-  - Make imported knowledge yours (copy from packages/ to local/)
-  - Input:
-    - `path` (string, required): Path to entry (e.g., `"packages/stripe-patterns/webhooks"`)
-    - `title` (string, optional): New title for adopted entry
-
-- **mark_hit**
-  - Mark an entry as helpful (increases ranking in future searches)
-  - Input:
-    - `path` (string, required): Path to the entry that helped
-  - Fire and forget - entries with more hits bubble up
-
-- **rebuild_index**
-  - Regenerate semantic search embeddings for all entries
-  - No input required
-  - Use after upgrading from pre-v1.2.0 or if search seems broken
-
----
-
-## Usage Examples
-
-### Before Planning
+## Quick Start
 
 ```javascript
+// Search before making decisions
 brief({ query: "stripe webhook handling" })
-```
 
-### After Learning Something
-
-```javascript
+// Capture what you learned
 record({
   insight: "Stripe retries webhooks but doesn't dedupe - always check idempotency key",
-  context: "payments, webhooks",
-  reasoning: "Their retry logic assumes failures, not slow responses"
+  context: "payments, webhooks"
 })
-```
 
-### When an Entry Helps
-
-```javascript
+// Mark helpful entries to boost their ranking
 mark_hit({ path: "local/stripe-webhooks-need-idempotency.md" })
+
+// Browse the marketplace
+library_search({ query: "react patterns" })
 ```
 
-### Importing Existing Memories
+## API Reference
 
-```javascript
-// From Anthropic MCP Memory
-import_memories({ format: "jsonl", path: "~/.aim/memory.jsonl", source_name: "anthropic" })
+### Local Knowledge
 
-// From Obsidian
-import_memories({ format: "markdown", path: "~/Documents/Obsidian/Dev/", source_name: "obsidian" })
+| Tool | Purpose |
+|------|---------|
+| `brief(query?, limit?)` | Semantic search across your library |
+| `record(insight, ...)` | Capture knowledge worth keeping |
+| `adopt(path, title?)` | Copy imported entry to local library |
+| `mark_hit(path)` | Mark an entry as helpful (increases ranking) |
+| `import_memories(format, path)` | Import from other AI tools |
+| `rebuild_index(force?)` | Rebuild semantic search embeddings |
+| `delete(path?, query?, confirm?)` | Delete entries from local library |
 
-// From Cursor Memory Bank
-import_memories({ format: "cursor", path: ".cursor-memory/", source_name: "cursor" })
+### Marketplace
 
-// From JSON knowledge store
-import_memories({ format: "json", path: "~/memories.json", source_name: "json-store" })
+| Tool | Purpose |
+|------|---------|
+| `library_search(query, filters?)` | Search Telvok marketplace |
+| `library_buy(slug)` | Purchase or claim a book |
+| `library_download(slug)` | Download a free book locally |
+| `library_publish(name, pricing, attestation, ...)` | Publish entries as a book |
+| `my_books(filter?)` | View published and purchased books |
+| `sync(slug?, force?)` | Check for updates to owned books |
+| `rate_book(slug, rating, ...)` | Rate a purchased book (1-5 stars) |
+| `seller_analytics()` | View sales and download stats |
+| `unsubscribe(slug)` | Cancel a subscription |
 
-// From SQLite database (mcp-memory-service)
-import_memories({ format: "sqlite", path: "~/memory.db", source_name: "sqlite-memory" })
+### Bounties
+
+| Tool | Purpose |
+|------|---------|
+| `bounty_create(title, amount_cents, ...)` | Post a knowledge request with reward |
+| `bounty_list(query?, tags?, status?)` | Browse available bounties |
+| `bounty_claim(bounty_id)` | Claim a bounty to fulfill |
+| `bounty_submit(bounty_id, book_slug)` | Submit fulfillment |
+| `my_bounties(role?)` | View your bounties |
+
+### Account
+
+| Tool | Purpose |
+|------|---------|
+| `auth(action)` | Login, logout, status, complete |
+| `help(topic?)` | Get help on any tool |
+| `feedback(message, type?)` | Send feedback |
+
+## How Search Works
+
+Librarian uses local AI embeddings for semantic search:
+
+```
+You saved:   "Stripe webhooks need idempotency checks"
+You search:  "handling duplicate payment events"
+→ It finds it.
 ```
 
----
+- `all-MiniLM-L6-v2` model (384-dim embeddings)
+- ~30MB download on first run, cached locally
+- No API calls — fully offline
 
-## Supported Import Formats
+Results ranked by semantic similarity, recency (60%), and hit count (40%).
 
-| Format | Sources | File Type |
-|--------|---------|-----------|
-| `jsonl` | Anthropic MCP Memory, mcp-knowledge-graph, any memory tool | `.jsonl` with content/text/observations fields |
-| `markdown` | Obsidian, Basic Memory MCP, any notes | `.md` files with optional YAML frontmatter |
-| `cursor` | Cursor Memory Bank | `.cursor-memory/` folder |
-| `json` | Simple memory servers, knowledge stores | `.json` arrays or objects |
-| `sqlite` | mcp-memory-service, SQLite-vec | `.db`, `.sqlite` databases |
+## Import Formats
 
----
+| Format | Sources |
+|--------|---------|
+| `jsonl` | Anthropic MCP Memory, mcp-knowledge-graph |
+| `markdown` | Obsidian, Basic Memory MCP |
+| `cursor` | Cursor Memory Bank |
+| `json` | Simple memory servers |
+| `sqlite` | mcp-memory-service, SQLite-vec |
 
-## Semantic Search
+## Authentication
 
-Not keyword matching. Understanding.
+1. `auth({ action: "login" })` — returns code + URL
+2. Visit `telvok.com/device`, enter the code
+3. `auth({ action: "complete" })` — saves API key locally
 
-```
-# You saved: "Stripe webhooks need idempotency checks"
-# You search: "handling duplicate payment events"
-# It finds it.
-```
-
-**How it works:**
-- Uses local `all-MiniLM-L6-v2` model (384-dimension embeddings)
-- First run downloads ~30MB model (cached in `.librarian/models/`)
-- No API calls - your data stays on your machine
-
----
-
-## Smart Ranking
-
-`brief()` ranks results using a blended score:
-
-| Factor | Weight | Description |
-|--------|--------|-------------|
-| Semantic similarity | Primary | How closely the query matches the content |
-| Recency | 60% | Fresh entries surface (decays over 30 days) |
-| Hits | 40% | Proven entries bubble up |
-
-This balances discovery of new knowledge with survival of the useful.
-
----
+Keys stored in `.librarian/.auth`, expire after 90 days.
 
 ## Library Structure
 
 ```
 .librarian/
-├── local/           # Your knowledge (recorded + imported)
-│   ├── stripe-webhooks.md
-│   └── anthropic/   # Imported from other tools
-├── packages/        # Marketplace content (others' knowledge)
-├── archived/        # Stale but still searchable
-├── index.json       # Semantic embeddings
-└── models/          # Cached embedding model
+├── local/        # Your entries
+├── imported/     # Downloaded books
+├── packages/     # Purchased content
+├── archived/     # Stale but searchable
+├── index.json    # Semantic embeddings
+├── models/       # Cached embedding model
+└── .auth         # API key (git-ignored)
 ```
 
----
+## Contributing
 
-## What To Record
-
-**Yes:**
-- The solution that took hours to find
-- The gotcha that'll bite again
-- Why you chose X over Y
-- What you were actually trying to accomplish
-
-**No:**
-- Generic documentation (search engines exist)
-- Temporary hacks (they'll mislead you later)
-
----
-
-## The Pitch
-
-Other AI memory tools are silos. They write to their own format, locked in their own ecosystem. Switch tools and your knowledge stays behind.
-
-**Librarian reads everything.**
-
-Cursor memories. Obsidian notes. Anthropic MCP Memory. Random JSON exports. SQLite databases. Whatever you've got - import it, search it, use it. One unified library that grows with you, not against you.
-
-**Your AI finally remembers.**
-
----
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/my-feature`)
+3. Commit changes (`git commit -m 'Add my feature'`)
+4. Push (`git push origin feature/my-feature`)
+5. Open a Pull Request
 
 ## License
 
-MIT
+MIT - [Telvok](https://github.com/telvokdev/librarian)

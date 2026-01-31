@@ -52,15 +52,27 @@ const TELVOK_API_URL = process.env.TELVOK_API_URL || 'https://telvok.com';
 
 export const briefTool = {
   name: 'brief',
-  description: `Check what we already know before diving in.
+  title: 'Search Knowledge Library',
+  description: `CALL THIS PROACTIVELY before thinking through problems, making decisions, or planning.
 
-We've solved problems before. Before thinking through a problem, making
-decisions, or planning - brief yourself on what past-us figured out.
-Searches intent, insight, context, and examples.
+USE THIS TOOL WHEN:
+- Starting work on ANY topic (check what we already know)
+- A problem feels familiar (we probably solved it before)
+- Making architectural or implementation decisions
+- Debugging issues (past-us likely hit the same gotcha)
+- The user mentions something we've worked on before
+
+DO NOT SKIP THIS because you think you know the answer. Our library contains project-specific context, credentials, and decisions that general knowledge doesn't have.
+
+TRIGGER PATTERNS:
+- User asks about auth/tokens → brief({ query: "auth" })
+- Starting Stripe work → brief({ query: "stripe" })
+- Any error/debugging → brief({ query: "<error topic>" })
+- User says "remember when..." → brief({ query: "<topic>" })
+- Beginning any task → brief({}) for recent context
 
 Examples:
 - brief({ query: "stripe webhooks" })
-- brief({ query: "auth token" })
 - brief({}) → returns recent entries
 - brief({ query: "react", include_library: true }) → also search library`,
 
@@ -83,6 +95,49 @@ Examples:
       },
     },
     required: [],
+  },
+
+  outputSchema: {
+    type: 'object' as const,
+    properties: {
+      entries: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            title: { type: 'string' },
+            preview: { type: 'string' },
+            path: { type: 'string' },
+            hits: { type: 'number' },
+            source: { type: 'string', enum: ['local', 'cloud', 'packages'] },
+            book_name: { type: 'string' },
+          },
+        },
+      },
+      total: { type: 'number' },
+      message: { type: 'string' },
+      libraryPath: { type: 'string' },
+      library: {
+        type: 'object',
+        properties: {
+          books: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                slug: { type: 'string' },
+                name: { type: 'string' },
+                description: { type: 'string' },
+                pricing: { type: 'string' },
+                entries: { type: 'number' },
+              },
+            },
+          },
+          total: { type: 'number' },
+        },
+      },
+    },
+    required: ['entries', 'total', 'message', 'libraryPath'],
   },
 
   async handler(args: unknown): Promise<BriefResult> {
@@ -139,25 +194,25 @@ Examples:
       const total = allEntries.length;
       const entries = allEntries.slice(0, limit);
 
-      // Optionally fetch cloud content and library results
+      // Always fetch cloud content if authenticated (owned/purchased books)
+      // Only fetch marketplace if include_library flag is set
       let cloudResult: { entries: CloudEntry[]; total: number } | undefined;
       let libraryResult: { books: MarketplaceBook[]; total: number } | undefined;
 
-      if (include_library && query) {
-        // Fetch cloud content from owned books (in parallel with library)
-        const [cloudData, libraryData] = await Promise.all([
-          fetchCloudContent(query, limit),
-          fetchMarketplaceResults(query, 5),
-        ]);
-        cloudResult = cloudData;
-        libraryResult = libraryData;
+      if (query) {
+        // Always fetch cloud content from owned books if authenticated
+        cloudResult = await fetchCloudContent(query, limit);
 
-        // Filter library to exclude books user already owns
-        // (we got cloud results from them, so they own them)
-        if (cloudResult.entries.length > 0) {
-          const ownedSlugs = new Set(cloudResult.entries.map(e => e.book_slug));
-          libraryResult.books = libraryResult.books.filter(b => !ownedSlugs.has(b.slug));
-          libraryResult.total = libraryResult.books.length;
+        // Only fetch marketplace discovery if explicitly requested
+        if (include_library) {
+          libraryResult = await fetchMarketplaceResults(query, 5);
+
+          // Filter library to exclude books user already owns
+          if (cloudResult.entries.length > 0) {
+            const ownedSlugs = new Set(cloudResult.entries.map(e => e.book_slug));
+            libraryResult.books = libraryResult.books.filter(b => !ownedSlugs.has(b.slug));
+            libraryResult.total = libraryResult.books.length;
+          }
         }
       }
 
@@ -269,24 +324,25 @@ Examples:
     // Apply limit
     const entries = allEntries.slice(0, limit);
 
-    // Optionally fetch cloud content and library results
+    // Always fetch cloud content if authenticated (owned/purchased books)
+    // Only fetch marketplace if include_library flag is set
     let cloudResult: { entries: CloudEntry[]; total: number } | undefined;
     let libraryResult: { books: MarketplaceBook[]; total: number } | undefined;
 
-    if (include_library && query) {
-      // Fetch cloud content from owned books (in parallel with library)
-      const [cloudData, libraryData] = await Promise.all([
-        fetchCloudContent(query, limit),
-        fetchMarketplaceResults(query, 5),
-      ]);
-      cloudResult = cloudData;
-      libraryResult = libraryData;
+    if (query) {
+      // Always fetch cloud content from owned books if authenticated
+      cloudResult = await fetchCloudContent(query, limit);
 
-      // Filter library to exclude books user already owns
-      if (cloudResult.entries.length > 0) {
-        const ownedSlugs = new Set(cloudResult.entries.map(e => e.book_slug));
-        libraryResult.books = libraryResult.books.filter(b => !ownedSlugs.has(b.slug));
-        libraryResult.total = libraryResult.books.length;
+      // Only fetch marketplace discovery if explicitly requested
+      if (include_library) {
+        libraryResult = await fetchMarketplaceResults(query, 5);
+
+        // Filter library to exclude books user already owns
+        if (cloudResult.entries.length > 0) {
+          const ownedSlugs = new Set(cloudResult.entries.map(e => e.book_slug));
+          libraryResult.books = libraryResult.books.filter(b => !ownedSlugs.has(b.slug));
+          libraryResult.total = libraryResult.books.length;
+        }
       }
     }
 

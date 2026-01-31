@@ -323,7 +323,7 @@ async function completeLogin(authFile: string, pendingFile: string): Promise<Aut
           expires_at: data.expires_at,
         };
 
-        await fs.writeFile(authFile, JSON.stringify(authData, null, 2), 'utf-8');
+        await fs.writeFile(authFile, JSON.stringify(authData, null, 2), { encoding: 'utf-8', mode: 0o600 });
         await fs.unlink(pendingFile).catch(() => {});
 
         return {
@@ -392,7 +392,7 @@ async function refreshKey(authFile: string): Promise<AuthResult> {
     // Update stored credentials
     authData.api_key = data.api_key;
     authData.expires_at = data.expires_at;
-    await fs.writeFile(authFile, JSON.stringify(authData, null, 2), 'utf-8');
+    await fs.writeFile(authFile, JSON.stringify(authData, null, 2), { encoding: 'utf-8', mode: 0o600 });
 
     const expiresAt = new Date(data.expires_at);
     const daysUntilExpiry = Math.floor((expiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24));

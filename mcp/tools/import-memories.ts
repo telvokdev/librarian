@@ -23,25 +23,26 @@ export interface ImportResult {
 
 export const importMemoriesTool = {
   name: 'import_memories',
+  title: 'Import External Memories',
   description: `Import memories from other AI tools into Librarian.
 
-Use this when you see memory files from other AI tools (Cursor .cursor-memory/, Anthropic ~/.aim/, mcp-memory-service .db files, Obsidian vaults) or when user mentions having knowledge in other tools. Import them so past knowledge becomes searchable.
+USE THIS TOOL WHEN:
+- You see .cursor-memory/, ~/.aim/, or other AI memory files
+- User mentions having knowledge in Cursor, Obsidian, or other tools
+- User wants to consolidate memories from multiple sources
 
-Supported formats:
-- jsonl: Anthropic MCP Memory, mcp-knowledge-graph (.jsonl files)
-- markdown: Basic Memory, Obsidian, any .md files
-- cursor: Cursor Memory Bank (.cursor-memory/)
-- json: Simple memory servers, knowledge stores (.json files)
-- sqlite: mcp-memory-service, SQLite-vec (.db, .sqlite files)
+Supported: jsonl, markdown, cursor, json, sqlite formats.
+Imports go to .librarian/local/[source]/ and are auto-indexed.
 
-Imports go to .librarian/local/[source-name]/ and are automatically indexed for semantic search.
+TRIGGER PATTERNS:
+- See .cursor-memory/ folder → import_memories({ format: "cursor", path: ".cursor-memory/" })
+- "Import my Obsidian notes" → import_memories({ format: "markdown", path: "~/notes/" })
+- User mentions other AI memory → offer to import it
 
 Examples:
-- import_memories({ format: "jsonl", path: "~/.aim/memory.jsonl", source_name: "anthropic-memory" })
-- import_memories({ format: "markdown", path: "~/basic-memory/", source_name: "basic-memory" })
 - import_memories({ format: "cursor", path: ".cursor-memory/", source_name: "cursor-memory" })
-- import_memories({ format: "json", path: "~/memories.json", source_name: "json-memory" })
-- import_memories({ format: "sqlite", path: "~/memory.db", source_name: "sqlite-memory" })`,
+- import_memories({ format: "markdown", path: "~/basic-memory/", source_name: "basic-memory" })
+- import_memories({ format: "jsonl", path: "~/.aim/memory.jsonl", source_name: "anthropic-memory" })`,
 
   inputSchema: {
     type: 'object' as const,
@@ -83,7 +84,12 @@ Examples:
     // Setup output directory
     const libraryPath = getLibraryPath();
     const localPath = getLocalPath(libraryPath);
-    const outputPath = path.join(localPath, sourceName);
+    const outputPath = path.resolve(localPath, sourceName);
+
+    // Prevent path traversal in output directory
+    if (!outputPath.startsWith(path.resolve(localPath))) {
+      throw new Error('Invalid source_name: output path must be within local/');
+    }
 
     // Check if output directory already exists
     try {

@@ -51,13 +51,21 @@ interface MyBooksResult {
 
 export const myBooksTool = {
   name: 'my_books',
-  description: `View your published and purchased books from Telvok library.
+  title: 'View My Books',
+  description: `View your published and purchased books.
 
-Shows:
-- Published: Books you've created and published
-- Purchased: Books you've bought or claimed (active status)
+USE THIS TOOL WHEN:
+- User asks "what books do I have" or "show my library"
+- Need to find a book slug for sync(), rate_book(), or other operations
+- Checking what content user owns
 
-Requires authentication. Run auth({ action: "login" }) first if not connected.
+Shows published (created) and purchased (bought/claimed) books.
+
+TRIGGER PATTERNS:
+- "Show my books" → my_books()
+- "What have I published?" → my_books({ filter: "published" })
+- "What books did I buy?" → my_books({ filter: "purchased" })
+- Need book slugs → my_books()
 
 Examples:
 - my_books() - Show all your books

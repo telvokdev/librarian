@@ -10,3 +10,10 @@ export { syncTool } from './sync.js';
 export { sellerAnalyticsTool } from './seller-analytics.js';
 export { rateBookTool } from './rate-book.js';
 export { helpTool } from './help.js';
+
+// Bounty tools
+export { bountyCreateTool } from './bounty-create.js';
+export { bountyListTool } from './bounty-list.js';
+export { bountyClaimTool } from './bounty-claim.js';
+export { bountySubmitTool } from './bounty-submit.js';
+export { myBountiesTool } from './my-bounties.js';

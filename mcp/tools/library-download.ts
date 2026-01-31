@@ -44,17 +44,22 @@ interface DownloadResult {
 
 export const libraryDownloadTool = {
   name: 'library_download',
-  description: `Download a FREE (open) book to your local library.
+  title: 'Download Free Book',
+  description: `Download a FREE (open) book for offline access.
 
-Downloads content from free/open books to .librarian/packages/{slug}/ for offline access.
+USE THIS TOOL WHEN:
+- User wants to download a free book they own
+- Need offline access to open-source book content
+- User says "download that book"
 
-NOTE: Paid books (one-time or subscription) cannot be downloaded - they are cloud-only
-for IP protection. Use brief({ query: "...", include_library: true }) to access
-content from paid books you own.
+Downloads to .librarian/packages/{slug}/. Only works for FREE books.
+Paid books are cloud-only - use brief({ include_library: true }) instead.
 
-Requires authentication and ownership (purchased or free).
+TRIGGER PATTERNS:
+- "Download that free book" → library_download({ slug: "..." })
+- After library_buy() on free book → library_download({ slug: "..." })
 
-Examples:
+Example:
 - library_download({ slug: "react-best-practices" })`,
 
   inputSchema: {
@@ -118,6 +123,18 @@ Examples:
 
       // Create directory
       await fs.mkdir(bookPath, { recursive: true });
+
+      // Clean up existing .md files to remove orphaned entries from deleted content
+      try {
+        const existingFiles = await fs.readdir(bookPath);
+        for (const file of existingFiles) {
+          if (file.endsWith('.md')) {
+            await fs.unlink(path.join(bookPath, file));
+          }
+        }
+      } catch {
+        // Directory might be new or empty, ignore errors
+      }
 
       // Write each entry as a markdown file
       const entries: BookEntry[] = data.entries || [];

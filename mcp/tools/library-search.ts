@@ -18,6 +18,7 @@ interface BookResult {
   entries: number;
   rating: number | null;
   tags: string[];
+  total_hits: number;
 }
 
 interface SearchFilters {
@@ -44,19 +45,27 @@ interface SearchResult {
 
 export const librarySearchTool = {
   name: 'library_search',
-  description: `Search Telvok library for knowledge books.
+  title: 'Search Marketplace',
+  description: `Search Telvok marketplace for knowledge books.
 
-Find books created by other users that you can import into your library.
+USE THIS TOOL WHEN:
+- brief() returns no results and marketplace might have relevant content
+- User explicitly asks to find/search marketplace books
+- Looking for domain expertise we don't have locally
+
+DO NOT USE when brief() already found useful local entries.
+
+TRIGGER PATTERNS:
+- brief() found nothing → library_search({ query: "<same topic>" })
+- "Find books about X" → library_search({ query: "X" })
+- "What's in the marketplace?" → library_search({})
+- "Show free books" → library_search({ filters: { pricing: "open" } })
+
+Filters: pricing ("open"/"one_time"/"subscription"), tags, min_rating (0-5)
 
 Examples:
 - library_search({ query: "react hooks" })
-- library_search({ query: "python", filters: { pricing: "open" } })
-- library_search({ query: "auth", limit: 5 })
-
-Filters:
-- pricing: "open" (free), "one_time" (paid once), "subscription" (ongoing)
-- tags: Array of tags to match
-- min_rating: Minimum quality score (0-5)`,
+- library_search({ filters: { pricing: "open" } })`,
 
   inputSchema: {
     type: 'object' as const,
@@ -93,6 +102,32 @@ Filters:
     required: [],  // Query is optional - empty returns all books (browse mode)
   },
 
+  outputSchema: {
+    type: 'object' as const,
+    properties: {
+      books: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            slug: { type: 'string' },
+            name: { type: 'string' },
+            description: { type: 'string' },
+            pricing: { type: 'string', enum: ['open', 'one_time', 'subscription'] },
+            price: { type: 'string' },
+            entries: { type: 'number' },
+            rating: { type: 'number' },
+            tags: { type: 'array', items: { type: 'string' } },
+            total_hits: { type: 'number' },
+          },
+        },
+      },
+      total: { type: 'number' },
+      message: { type: 'string' },
+    },
+    required: ['books', 'total', 'message'],
+  },
+
   async handler(args: unknown): Promise<SearchResult> {
     const { query = '', filters, limit = 10 } = args as SearchArgs;
 
@@ -124,9 +159,10 @@ Filters:
       }
 
       // Build helpful summary
-      const summary = books.map((b, i) =>
-        `${i + 1}. **${b.name}** (${b.price}) - ${b.entries} entries\n   ${b.description?.slice(0, 100)}${b.description?.length > 100 ? '...' : ''}`
-      ).join('\n');
+      const summary = books.map((b, i) => {
+        const helpedText = b.total_hits > 0 ? `Helped ${b.total_hits} agent${b.total_hits === 1 ? '' : 's'}` : `${b.entries} entries`;
+        return `${i + 1}. **${b.name}** (${b.price}) - ${helpedText}\n   ${b.description?.slice(0, 100)}${b.description?.length > 100 ? '...' : ''}`;
+      }).join('\n');
 
       const queryMsg = query ? `for "${query}"` : 'in library';
       return {

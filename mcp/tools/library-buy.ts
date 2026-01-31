@@ -36,16 +36,23 @@ interface BuyResult {
 
 export const libraryBuyTool = {
   name: 'library_buy',
-  description: `Purchase or claim a book from the Telvok library.
+  title: 'Purchase Book',
+  description: `Purchase or claim a book from Telvok marketplace.
 
-For free (open) books: Instantly adds the book to your library.
-For paid books: Returns a checkout URL to complete payment.
+USE THIS TOOL WHEN:
+- User wants to buy a book from library_search() results
+- Claiming a free (open) book
+- User says "get", "buy", "purchase", or "claim" a book
 
-Requires authentication. Run auth({ action: "login" }) first if not connected.
+Free books: Instantly added to library. Paid: Returns checkout URL.
 
-Examples:
-- library_buy({ slug: "react-best-practices" })
-- library_buy({ slug: "premium-patterns" })`,
+TRIGGER PATTERNS:
+- "Buy that book" → library_buy({ slug: "<slug from search>" })
+- "Get the free one" → library_buy({ slug: "..." })
+- User selects from library_search results → library_buy({ slug: "..." })
+
+Example:
+- library_buy({ slug: "react-best-practices" })`,
 
   inputSchema: {
     type: 'object' as const,

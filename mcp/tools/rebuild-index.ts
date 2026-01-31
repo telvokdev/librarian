@@ -29,16 +29,24 @@ export interface RebuildResult {
 
 export const rebuildIndexTool = {
   name: 'rebuild_index',
-  description: `Rebuild the semantic search index for all library entries.
+  title: 'Rebuild Search Index',
+  description: `Rebuild the semantic search index.
 
-Use this when semantic search returns poor results, when user reports search seems broken, or after manually adding entries outside the normal workflow.
+USE THIS TOOL WHEN:
+- brief() returns poor or no results when entries exist
+- After import_memories() to index new content
+- User reports search seems broken
+- Manually edited .librarian/ files outside normal workflow
 
-Use this after:
-- Upgrading to v1.2.0 (existing entries need embeddings)
-- Importing memories from other tools
-- If semantic search seems broken
+Reads all .md entries and regenerates embeddings. May take a minute.
 
-Reads all .md entries and generates embeddings. May take a minute on first run.`,
+TRIGGER PATTERNS:
+- brief() returning nothing when it shouldn't → rebuild_index()
+- After bulk import → rebuild_index()
+- "Search seems broken" → rebuild_index()
+
+Example:
+- rebuild_index()`,
 
   inputSchema: {
     type: 'object' as const,
@@ -64,6 +72,9 @@ Reads all .md entries and generates embeddings. May take a minute on first run.`
     let skipped = 0;
     const errors: string[] = [];
 
+    // Progress file for status checks during rebuild
+    const progressFile = path.join(libraryPath, '.rebuild-progress.json');
+
     // Collect all .md files from all directories
     const allDirs = [localPath, importedPath, packagesPath];
     const allFiles: string[] = [];
@@ -77,8 +88,31 @@ Reads all .md entries and generates embeddings. May take a minute on first run.`
       }
     }
 
+    // Write initial progress
+    await fs.writeFile(progressFile, JSON.stringify({
+      status: 'processing',
+      current: 0,
+      total: allFiles.length,
+      currentFile: '',
+      percent: 0,
+      startedAt: new Date().toISOString(),
+    }), 'utf-8').catch(() => {});
+
     // Process each file
-    for (const filePath of allFiles) {
+    for (let i = 0; i < allFiles.length; i++) {
+      const filePath = allFiles[i];
+
+      // Update progress file
+      await fs.writeFile(progressFile, JSON.stringify({
+        status: 'processing',
+        current: i + 1,
+        total: allFiles.length,
+        currentFile: path.basename(filePath),
+        percent: Math.round(((i + 1) / allFiles.length) * 100),
+        indexed,
+        skipped,
+      }), 'utf-8').catch(() => {});
+
       try {
         const content = await fs.readFile(filePath, 'utf-8');
         const { data, content: body } = matter(content);
@@ -121,6 +155,9 @@ Reads all .md entries and generates embeddings. May take a minute on first run.`
 
     // Save the index
     await saveIndex(index);
+
+    // Cleanup progress file
+    await fs.unlink(progressFile).catch(() => {});
 
     const stats = getIndexStats(index);
     const message = indexed > 0

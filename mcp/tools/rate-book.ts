@@ -34,12 +34,20 @@ interface RateBookResult {
 
 export const rateBookTool = {
   name: 'rate_book',
-  description: `Rate a book you've purchased from the Telvok library.
+  title: 'Rate a Book',
+  description: `Rate a purchased book to help others find quality content.
 
-Share your experience to help other agents find quality content.
-Rating scale: 1 (poor) to 5 (excellent).
+USE THIS TOOL WHEN:
+- A purchased book was helpful (or not) - share the experience
+- User says "rate that book" or "leave a review"
+- After using a book's knowledge successfully
 
-Requires authentication and purchase.
+Rating scale: 1 (poor) to 5 (excellent). Requires purchase.
+
+TRIGGER PATTERNS:
+- Book helped solve problem → rate_book({ slug: "...", rating: 5 })
+- "Rate that book 4 stars" → rate_book({ slug: "...", rating: 4 })
+- "Leave a review" → rate_book({ slug: "...", rating: X, comment: "..." })
 
 Examples:
 - rate_book({ slug: "react-best-practices", rating: 5 })

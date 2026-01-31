@@ -28,15 +28,21 @@ interface FeedbackResult {
 
 export const feedbackTool = {
   name: 'feedback',
+  title: 'Send Feedback',
   description: `Send feedback to the Telvok team.
 
-Report bugs, request features, or ask questions.
+USE THIS TOOL WHEN:
+- User found a bug or issue
+- User wants to request a feature
+- User has questions about Librarian/Telvok
+- User wants to share positive feedback
 
-Types:
-- bug: Something isn't working
-- feature: Request a new feature
-- question: Ask about usage
-- general: Other feedback
+Types: bug, feature, question, general
+
+TRIGGER PATTERNS:
+- "This seems broken" → feedback({ message: "...", type: "bug" })
+- "Can you add X feature?" → feedback({ message: "...", type: "feature" })
+- "Great tool!" → feedback({ message: "..." })
 
 Examples:
 - feedback({ message: "The sync tool times out with large books", type: "bug" })

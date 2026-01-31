@@ -1,9 +1,10 @@
 {
   "name": "librarian",
-  "version": "1.5.4",
+  "version": "2.0.0",
   "description": "Knowledge capture for Claude Code",
   "author": {
     "name": "Telvok"
   },
-  "skills": "./skills/"
+  "skills": "./skills/",
+  "commands": "./commands/"
 }

@@ -74,23 +74,22 @@ interface PublishResult {
 
 export const libraryPublishTool = {
   name: 'library_publish',
-  description: `Publish local entries as a book on Telvok library.
+  title: 'Publish Book',
+  description: `Publish local entries as a book on Telvok marketplace.
 
-Collects entries from .librarian/local/ and publishes them as a book.
-Users can browse and purchase your book on telvok.com.
+USE THIS TOOL WHEN:
+- User wants to share/sell their recorded knowledge
+- User says "publish", "share", or "sell" their entries
+- Creating a book from .librarian/local/ entries
 
-Required fields:
-- name: Book title
-- pricing: { type: "open" | "one_time" | "subscription", price_cents? }
-- consumption: How buyers access content ("inline" | "reference" | "download")
-- attestation: { original_work: true, no_secrets: true, terms_accepted: true }
+ALWAYS use preview: true first to show what will be published.
 
-Consumption types:
-- "inline": Full content in API responses (all pricing)
-- "reference": README + pointers to entries (all pricing)
-- "download": Download to local library (only for free/open books)
+TRIGGER PATTERNS:
+- "Publish my entries" → library_publish({ name: "...", pricing: { type: "open" }, preview: true })
+- "Sell my knowledge" → library_publish({ name: "...", pricing: { type: "one_time", price_cents: 500 }, preview: true })
+- After preview approval → add attestation and consumption, remove preview
 
-Use preview: true to see what would be published without actually publishing.
+Required for actual publish: name, pricing, consumption, attestation (all true).
 
 Examples:
 - Preview: library_publish({ name: "My Book", pricing: { type: "open" }, preview: true })
@@ -181,6 +180,19 @@ Examples:
     }
     if (pricing.type !== 'open' && (!pricing.price_cents || pricing.price_cents < 100)) {
       throw new Error('Paid books require price_cents >= 100 ($1.00)');
+    }
+    if (pricing.price_cents && pricing.price_cents > 100000) {
+      throw new Error('Price cannot exceed $1000.00 (100000 cents)');
+    }
+
+    // Validate description length
+    if (description && description.length > 500) {
+      throw new Error('Description must be 500 characters or less');
+    }
+
+    // Validate tags count
+    if (tags && tags.length > 10) {
+      throw new Error('Maximum 10 tags allowed');
     }
 
     // Collect entries from local/ (needed for preview and publish)

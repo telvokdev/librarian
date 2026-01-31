@@ -5,6 +5,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import { LibrarianError } from './library/errors.js';
 import { briefTool } from './tools/brief.js';
 import { recordTool } from './tools/record.js';
 import { adoptTool } from './tools/adopt.js';
@@ -22,7 +23,99 @@ import { sellerAnalyticsTool } from './tools/seller-analytics.js';
 import { rateBookTool } from './tools/rate-book.js';
 import { helpTool } from './tools/help.js';
 import { feedbackTool } from './tools/feedback.js';
+import { bountyCreateTool } from './tools/bounty-create.js';
+import { bountyListTool } from './tools/bounty-list.js';
+import { bountyClaimTool } from './tools/bounty-claim.js';
+import { bountySubmitTool } from './tools/bounty-submit.js';
+import { myBountiesTool } from './tools/my-bounties.js';
+import { deleteTool } from './tools/delete.js';
+import { unsubscribeTool } from './tools/unsubscribe.js';
 
+// ---------------------------------------------------------------------------
+// Tool group definitions
+// ---------------------------------------------------------------------------
+// core       — local knowledge management (works offline)
+// marketplace — cloud features requiring auth + Telvok API
+// both       — needed by both groups (e.g. auth, help, feedback)
+// ---------------------------------------------------------------------------
+type ToolGroup = 'core' | 'marketplace' | 'both';
+
+interface ToolEntry {
+  tool: {
+    name: string;
+    title?: string;
+    description: string;
+    inputSchema: unknown;
+    outputSchema?: unknown;
+    handler: (args?: unknown) => Promise<unknown>;
+  };
+  group: ToolGroup;
+}
+
+const allTools: ToolEntry[] = [
+  // Core tools — local knowledge management
+  { tool: briefTool,          group: 'core' },
+  { tool: recordTool,         group: 'core' },
+  { tool: adoptTool,          group: 'core' },
+  { tool: markHitTool,        group: 'core' },
+  { tool: importMemoriesTool, group: 'core' },
+  { tool: rebuildIndexTool,   group: 'core' },
+  { tool: deleteTool,         group: 'core' },
+
+  // Marketplace tools — cloud features
+  { tool: librarySearchTool,   group: 'marketplace' },
+  { tool: libraryBuyTool,      group: 'marketplace' },
+  { tool: libraryDownloadTool, group: 'marketplace' },
+  { tool: libraryPublishTool,  group: 'marketplace' },
+  { tool: myBooksTool,         group: 'marketplace' },
+  { tool: syncTool,            group: 'marketplace' },
+  { tool: sellerAnalyticsTool, group: 'marketplace' },
+  { tool: rateBookTool,        group: 'marketplace' },
+  { tool: bountyCreateTool,    group: 'marketplace' },
+  { tool: bountyListTool,      group: 'marketplace' },
+  { tool: bountyClaimTool,     group: 'marketplace' },
+  { tool: bountySubmitTool,    group: 'marketplace' },
+  { tool: myBountiesTool,      group: 'marketplace' },
+  { tool: unsubscribeTool,     group: 'marketplace' },
+
+  // Both — shared across core and marketplace
+  { tool: authTool,     group: 'both' },
+  { tool: helpTool,     group: 'both' },
+  { tool: feedbackTool, group: 'both' },
+];
+
+// ---------------------------------------------------------------------------
+// Parse --server arg
+// ---------------------------------------------------------------------------
+type ServerMode = 'all' | 'core' | 'marketplace';
+
+function parseServerMode(): ServerMode {
+  const serverArg = process.argv.find(a => a.startsWith('--server='));
+  if (!serverArg) return 'all';
+  const mode = serverArg.split('=')[1];
+  if (mode === 'core' || mode === 'marketplace') return mode;
+  console.error(`Unknown --server mode: "${mode}". Valid: core, marketplace. Defaulting to all.`);
+  return 'all';
+}
+
+const serverMode = parseServerMode();
+
+function isToolIncluded(entry: ToolEntry): boolean {
+  if (serverMode === 'all') return true;
+  return entry.group === serverMode || entry.group === 'both';
+}
+
+const enabledTools = allTools.filter(isToolIncluded);
+
+// Build lookup map for call handler
+const toolMap = new Map<string, ToolEntry['tool']>();
+for (const entry of enabledTools) {
+  toolMap.set(entry.tool.name, entry.tool);
+}
+
+// ---------------------------------------------------------------------------
+// MCP Server
+// ---------------------------------------------------------------------------
 const server = new Server(
   {
     name: 'librarian',
@@ -38,93 +131,16 @@ const server = new Server(
 // List available tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
-    tools: [
-      {
-        name: briefTool.name,
-        description: briefTool.description,
-        inputSchema: briefTool.inputSchema,
-      },
-      {
-        name: recordTool.name,
-        description: recordTool.description,
-        inputSchema: recordTool.inputSchema,
-      },
-      {
-        name: adoptTool.name,
-        description: adoptTool.description,
-        inputSchema: adoptTool.inputSchema,
-      },
-      {
-        name: markHitTool.name,
-        description: markHitTool.description,
-        inputSchema: markHitTool.inputSchema,
-      },
-      {
-        name: importMemoriesTool.name,
-        description: importMemoriesTool.description,
-        inputSchema: importMemoriesTool.inputSchema,
-      },
-      {
-        name: rebuildIndexTool.name,
-        description: rebuildIndexTool.description,
-        inputSchema: rebuildIndexTool.inputSchema,
-      },
-      {
-        name: authTool.name,
-        description: authTool.description,
-        inputSchema: authTool.inputSchema,
-      },
-      {
-        name: librarySearchTool.name,
-        description: librarySearchTool.description,
-        inputSchema: librarySearchTool.inputSchema,
-      },
-      {
-        name: libraryBuyTool.name,
-        description: libraryBuyTool.description,
-        inputSchema: libraryBuyTool.inputSchema,
-      },
-      {
-        name: libraryDownloadTool.name,
-        description: libraryDownloadTool.description,
-        inputSchema: libraryDownloadTool.inputSchema,
-      },
-      {
-        name: libraryPublishTool.name,
-        description: libraryPublishTool.description,
-        inputSchema: libraryPublishTool.inputSchema,
-      },
-      {
-        name: myBooksTool.name,
-        description: myBooksTool.description,
-        inputSchema: myBooksTool.inputSchema,
-      },
-      {
-        name: syncTool.name,
-        description: syncTool.description,
-        inputSchema: syncTool.inputSchema,
-      },
-      {
-        name: sellerAnalyticsTool.name,
-        description: sellerAnalyticsTool.description,
-        inputSchema: sellerAnalyticsTool.inputSchema,
-      },
-      {
-        name: rateBookTool.name,
-        description: rateBookTool.description,
-        inputSchema: rateBookTool.inputSchema,
-      },
-      {
-        name: helpTool.name,
-        description: helpTool.description,
-        inputSchema: helpTool.inputSchema,
-      },
-      {
-        name: feedbackTool.name,
-        description: feedbackTool.description,
-        inputSchema: feedbackTool.inputSchema,
-      },
-    ],
+    tools: enabledTools.map(({ tool }) => {
+      const entry: Record<string, unknown> = {
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+      };
+      if (tool.title) entry.title = tool.title;
+      if (tool.outputSchema) entry.outputSchema = tool.outputSchema;
+      return entry;
+    }),
   };
 });
 
@@ -133,63 +149,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   try {
-    let result: unknown;
-
-    switch (name) {
-      case 'brief':
-        result = await briefTool.handler(args);
-        break;
-      case 'record':
-        result = await recordTool.handler(args);
-        break;
-      case 'adopt':
-        result = await adoptTool.handler(args);
-        break;
-      case 'mark_hit':
-        result = await markHitTool.handler(args);
-        break;
-      case 'import_memories':
-        result = await importMemoriesTool.handler(args);
-        break;
-      case 'rebuild_index':
-        result = await rebuildIndexTool.handler(args);
-        break;
-      case 'auth':
-        result = await authTool.handler(args);
-        break;
-      case 'library_search':
-        result = await librarySearchTool.handler(args);
-        break;
-      case 'library_buy':
-        result = await libraryBuyTool.handler(args);
-        break;
-      case 'library_download':
-        result = await libraryDownloadTool.handler(args);
-        break;
-      case 'library_publish':
-        result = await libraryPublishTool.handler(args);
-        break;
-      case 'my_books':
-        result = await myBooksTool.handler(args);
-        break;
-      case 'sync':
-        result = await syncTool.handler(args);
-        break;
-      case 'seller_analytics':
-        result = await sellerAnalyticsTool.handler();
-        break;
-      case 'rate_book':
-        result = await rateBookTool.handler(args);
-        break;
-      case 'help':
-        result = await helpTool.handler(args);
-        break;
-      case 'feedback':
-        result = await feedbackTool.handler(args);
-        break;
-      default:
-        throw new Error(`Unknown tool: ${name}`);
+    const tool = toolMap.get(name);
+    if (!tool) {
+      throw new Error(`Unknown tool: ${name}`);
     }
+
+    const result = await tool.handler(args);
 
     return {
       content: [
@@ -200,6 +165,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       ],
     };
   } catch (error) {
+    // Handle LibrarianError with error codes
+    if (error instanceof LibrarianError) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(error.toJSON()),
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    // Handle generic errors
     const message = error instanceof Error ? error.message : String(error);
     return {
       content: [
