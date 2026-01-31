@@ -68,23 +68,23 @@ library_search({ query: "react patterns" })
 
 ### Marketplace
 
+Free books available now. Paid books and seller payouts coming soon.
+
 | Tool | Purpose |
 |------|---------|
 | `library_search(query, filters?)` | Search Telvok marketplace |
-| `library_buy(slug)` | Purchase or claim a book |
 | `library_download(slug)` | Download a free book locally |
-| `library_publish(name, pricing, attestation, ...)` | Publish entries as a book |
-| `my_books(filter?)` | View published and purchased books |
+| `library_publish(name, attestation, ...)` | Publish entries as a book |
+| `my_books(filter?)` | View published and downloaded books |
 | `sync(slug?, force?)` | Check for updates to owned books |
-| `rate_book(slug, rating, ...)` | Rate a purchased book (1-5 stars) |
-| `seller_analytics()` | View sales and download stats |
-| `unsubscribe(slug)` | Cancel a subscription |
+| `rate_book(slug, rating, ...)` | Rate a book (1-5 stars) |
+| `seller_analytics()` | View download stats for your books |
 
-### Bounties
+### Bounties (Coming Soon)
 
 | Tool | Purpose |
 |------|---------|
-| `bounty_create(title, amount_cents, ...)` | Post a knowledge request with reward |
+| `bounty_create(title, ...)` | Post a knowledge request |
 | `bounty_list(query?, tags?, status?)` | Browse available bounties |
 | `bounty_claim(bounty_id)` | Claim a bounty to fulfill |
 | `bounty_submit(bounty_id, book_slug)` | Submit fulfillment |
