@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Downloads](https://img.shields.io/npm/dm/@telvok/librarian-mcp.svg)](https://www.npmjs.com/package/@telvok/librarian-mcp)
 
-A knowledge management MCP server for AI coding assistants. Capture insights, search with semantic understanding, and access a marketplace of developer knowledge.
+A knowledge management MCP server for AI coding assistants. Capture insights, search with semantic understanding, and access a library of developer knowledge.
 
 ## Installation
 
@@ -103,7 +103,7 @@ record({
 // Mark helpful entries to boost their ranking
 mark_hit({ path: "local/stripe-webhooks-need-idempotency.md" })
 
-// Browse the marketplace
+// Browse the library
 library_search({ query: "react patterns" })
 ```
 
@@ -121,13 +121,13 @@ library_search({ query: "react patterns" })
 | `rebuild_index(force?)` | Rebuild semantic search embeddings |
 | `delete(path?, query?, confirm?)` | Delete entries from local library |
 
-### Marketplace
+### Library
 
-Free books available now. Paid books and seller payouts coming soon.
+Free books available now. Paid books and seller payouts coming soon. Browse at [telvok.com](https://telvok.com).
 
 | Tool | Purpose |
 |------|---------|
-| `library_search(query, filters?)` | Search Telvok marketplace |
+| `library_search(query, filters?)` | Search Telvok library |
 | `library_download(slug)` | Download a free book locally |
 | `library_publish(name, attestation, ...)` | Publish entries as a book |
 | `my_books(filter?)` | View published and downloaded books |
