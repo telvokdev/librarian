@@ -8,13 +8,30 @@ A knowledge management MCP server for AI coding assistants. Capture insights, se
 
 ## Installation
 
-### Claude Code
+<details>
+<summary>Claude Code (Recommended)</summary>
+
+#### Plugin (full experience)
+
+Includes MCP tools, slash commands, and hooks.
+
+```
+/plugin marketplace add telvokdev/librarian
+/plugin install librarian@librarian
+```
+
+#### MCP only
 
 ```bash
 claude mcp add librarian -- npx @telvok/librarian-mcp
 ```
 
-### Any MCP Client
+</details>
+
+<details>
+<summary>Cursor</summary>
+
+Add to `.cursor/mcp.json`:
 
 ```json
 {
@@ -27,11 +44,49 @@ claude mcp add librarian -- npx @telvok/librarian-mcp
 }
 ```
 
-### Global Install
+</details>
+
+<details>
+<summary>Windsurf</summary>
+
+Add to `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "librarian": {
+      "command": "npx",
+      "args": ["@telvok/librarian-mcp"]
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary>Any MCP Client</summary>
+
+Add to your MCP config:
+
+```json
+{
+  "mcpServers": {
+    "librarian": {
+      "command": "npx",
+      "args": ["@telvok/librarian-mcp"]
+    }
+  }
+}
+```
+
+Or install globally:
 
 ```bash
 npm install -g @telvok/librarian-mcp
 ```
+
+</details>
 
 ## Quick Start
 
