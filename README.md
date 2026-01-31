@@ -123,7 +123,7 @@ library_search({ query: "react patterns" })
 
 ### Library
 
-Free books available now. Paid books and seller payouts in beta. Browse at [telvok.com](https://telvok.com).
+Browse and publish books at [telvok.com](https://telvok.com). Free and paid content supported.
 
 | Tool | Purpose |
 |------|---------|
