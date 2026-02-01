@@ -1,0 +1,6 @@
+runtime: "typescript"
+startCommand:
+  type: "stdio"
+  configSchema:
+    type: "object"
+    properties: {}
