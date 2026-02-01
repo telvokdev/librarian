@@ -434,13 +434,19 @@ async function executePublish(state: WizardState) {
           setup_url: data.setup_url,
         };
       }
+      if (data.error === 'stripe_pending_verification') {
+        return {
+          success: false,
+          message: `Stripe is verifying your account — charges aren't enabled yet. Try again in a few minutes.`,
+        };
+      }
       if (data.error === 'validation_error') {
         const details = Object.entries(data.details || {})
           .map(([k, v]) => `  - ${k}: ${v}`)
           .join('\n');
         return { success: false, message: `Validation failed:\n${details}` };
       }
-      return { success: false, message: data.error || `Publish failed: HTTP ${response.status}` };
+      return { success: false, message: data.message || data.error || `Publish failed: HTTP ${response.status}` };
     }
 
     return {
