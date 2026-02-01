@@ -1,34 +1,23 @@
 // ============================================================================
 // Marketplace Unpublish Tool
-// Two-step: preview → osascript dialog / confirmation code → delete
+// Two-step: preview → user confirms → delete
 // ============================================================================
 
-import * as crypto from 'crypto';
-import { execSync } from 'child_process';
-import { platform } from 'os';
 import { loadApiKey } from './auth.js';
 
 const TELVOK_API_URL = process.env.TELVOK_API_URL || 'https://telvok.com';
 
 // ============================================================================
-// Pending State — preview stores book info + confirm code, expires 5 min
+// Pending State — preview stores slug, expires 5 min
 // ============================================================================
 
-interface PendingUnpublish {
-  slug: string;
-  bookName: string;
-  entriesCount: number;
-  pricing: string;
-  confirmCode: string;
-  created: number;
-}
-
+let pendingSlug: string | null = null;
+let pendingCreated = 0;
 const EXPIRY_MS = 5 * 60 * 1000;
-let pending: PendingUnpublish | null = null;
 
 function clearExpired() {
-  if (pending && Date.now() - pending.created > EXPIRY_MS) {
-    pending = null;
+  if (pendingSlug && Date.now() - pendingCreated > EXPIRY_MS) {
+    pendingSlug = null;
   }
 }
 
@@ -38,7 +27,7 @@ function clearExpired() {
 
 interface UnpublishArgs {
   slug: string;
-  confirm_code?: string;
+  confirm?: boolean;
 }
 
 // ============================================================================
@@ -53,19 +42,16 @@ export const libraryUnpublishTool = {
 TWO-STEP FLOW:
 
 Step 1: Call with just slug. Shows book details and what will be deleted.
-On macOS, a native confirmation dialog appears — the agent CANNOT bypass it.
-On other platforms, a confirmation code is returned that the user must type back.
+Step 2: Call again with slug + confirm: true ONLY after the user says yes.
 
-Step 2 (non-macOS only): Call again with slug + confirm_code from the user.
+DO NOT set confirm: true without the user explicitly saying yes.
+Show the preview and ask "Delete this book? (yes/no)" first.
 
 RESTRICTIONS:
 - Cannot unpublish books with active purchases
 - Deletion is PERMANENT — all entries are removed from marketplace
 
-Use my_books() first to see your published books and their slugs.
-
-DO NOT decide to unpublish without the user explicitly asking.
-Show the preview details and wait for user confirmation.`,
+Use my_books() first to see your published books and their slugs.`,
 
   inputSchema: {
     type: 'object' as const,
@@ -74,16 +60,16 @@ Show the preview details and wait for user confirmation.`,
         type: 'string',
         description: 'Book slug (from my_books output)',
       },
-      confirm_code: {
-        type: 'string',
-        description: 'Confirmation code from preview. User must type this back. Only needed on non-macOS.',
+      confirm: {
+        type: 'boolean',
+        description: 'Set to true ONLY after showing preview to user and they say yes.',
       },
     },
     required: ['slug'],
   },
 
   async handler(args: unknown) {
-    const { slug, confirm_code } = (args || {}) as UnpublishArgs;
+    const { slug, confirm } = (args || {}) as UnpublishArgs;
     clearExpired();
 
     if (!slug || typeof slug !== 'string') {
@@ -96,29 +82,22 @@ Show the preview details and wait for user confirmation.`,
     }
 
     // ========================================================================
-    // CONFIRM STEP — user typed back the code
+    // CONFIRM STEP — user said yes
     // ========================================================================
-    if (confirm_code) {
-      if (!pending || pending.slug !== slug) {
+    if (confirm) {
+      if (pendingSlug !== slug) {
         return {
           success: false,
           message: 'No pending unpublish for this slug. Call library_unpublish({ slug }) first to preview.',
         };
       }
 
-      if (confirm_code.toUpperCase() !== pending.confirmCode.toUpperCase()) {
-        return {
-          success: false,
-          message: `Wrong code. Expected: ${pending.confirmCode}. Got: ${confirm_code}. Try again.`,
-        };
-      }
-
-      pending = null;
+      pendingSlug = null;
       return await executeUnpublish(slug, apiKey);
     }
 
     // ========================================================================
-    // PREVIEW STEP — fetch book details, show confirmation
+    // PREVIEW STEP — fetch book details, show to user
     // ========================================================================
 
     const res = await fetch(`${TELVOK_API_URL}/api/my-books`, {
@@ -143,49 +122,14 @@ Show the preview details and wait for user confirmation.`,
     const entriesCount = book.entries_count || book.entry_count || 0;
     const pricing = book.pricing_type || book.pricing || 'unknown';
 
-    // Try native dialog on macOS
-    if (platform() === 'darwin') {
-      try {
-        const dialogText = [
-          `Permanently unpublish "${bookName}"?`,
-          ``,
-          `${entriesCount} entries — ${pricing}`,
-          ``,
-          `This removes the book from the marketplace.`,
-          `This action cannot be undone.`,
-        ].join('\\n');
-
-        const result = execSync(
-          `osascript -e 'display dialog "${dialogText}" buttons {"Cancel", "Delete"} default button "Cancel" with title "Telvok Unpublish" with icon caution'`,
-          { encoding: 'utf-8', timeout: 120000 }
-        );
-
-        if (result.includes('Delete')) {
-          return await executeUnpublish(slug, apiKey);
-        }
-      } catch (err: unknown) {
-        // osascript exit code 1 = user clicked Cancel
-        // anything else = osascript couldn't run — fall through to code method
-        const isUserCancel = err instanceof Error && 'status' in err && (err as { status: number }).status === 1;
-        if (isUserCancel) {
-          return {
-            success: false,
-            message: 'Unpublish cancelled.',
-          };
-        }
-        // fall through to confirmation code
-      }
-    }
-
-    // Fallback: confirmation code
-    const confirmCode = crypto.randomBytes(3).toString('hex').toUpperCase();
-    pending = { slug, bookName, entriesCount, pricing, confirmCode, created: Date.now() };
+    pendingSlug = slug;
+    pendingCreated = Date.now();
 
     return {
       success: true,
       preview: true,
-      message: `⚠️ UNPUBLISH PREVIEW\n\n  Book: ${bookName}\n  Slug: ${slug}\n  Entries: ${entriesCount}\n  Pricing: ${pricing}\n\n  This action is PERMANENT.\n\n🔑 Confirmation code: ${confirmCode}`,
-      ask_user: `To delete this book from the marketplace, the user must type back the code: ${confirmCode}`,
+      message: `⚠️ UNPUBLISH PREVIEW\n\n  Book: ${bookName}\n  Slug: ${slug}\n  Entries: ${entriesCount}\n  Pricing: ${pricing}\n\n  This action is PERMANENT.`,
+      ask_user: 'Show this to the user. Ask: "Delete this book from the marketplace? (yes/no)"',
       book: { slug, name: bookName, entries_count: entriesCount, pricing },
     };
   },

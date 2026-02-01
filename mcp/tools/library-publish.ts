@@ -6,9 +6,6 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import * as crypto from 'crypto';
-import { execSync } from 'child_process';
-import { platform } from 'os';
 import { glob } from 'glob';
 import matter from 'gray-matter';
 import { loadApiKey } from './auth.js';
@@ -59,7 +56,7 @@ interface PublishArgs {
   description?: string;
   tags?: string[];
   license?: string;
-  confirm_code?: string; // Final step: user types back the code
+  confirm?: boolean; // Final step: user says yes
 }
 
 interface CollectedEntry {
@@ -120,7 +117,7 @@ If the user says "publish my entries" — call library_publish() with NO args to
       description: { type: 'string', description: 'Book description. Only provide after user writes or approves it.' },
       tags: { type: 'array', items: { type: 'string' }, description: 'Topic tags (max 10).' },
       license: { type: 'string', enum: ['open', 'open_attributed', 'personal'] },
-      confirm_code: { type: 'string', description: 'Confirmation code from the final summary. User must type this back.' },
+      confirm: { type: 'boolean', description: 'Set to true ONLY after showing the summary to the user and they say yes.' },
     },
     required: [],
   },
@@ -347,89 +344,27 @@ If the user says "publish my entries" — call library_publish() with NO args to
       wizardState.license = input.license || 'personal';
       wizardState.step = 'confirm';
 
-      // Generate confirmation code
-      const confirmCode = crypto.randomBytes(3).toString('hex').toUpperCase(); // 6 chars
-
       const priceDisplay = wizardState.pricing!.type === 'open'
         ? 'Free (download)'
         : `$${(wizardState.pricing!.price_cents! / 100).toFixed(2)}/${wizardState.pricing!.type === 'subscription' ? 'mo' : 'once'}`;
 
-      // Try native dialog on macOS
-      let confirmMethod = 'code';
-      if (platform() === 'darwin') {
-        try {
-          const dialogText = [
-            `Publish "${wizardState.name}" to Telvok?`,
-            ``,
-            `${wizardState.selectedEntries!.length} entries — ${priceDisplay}`,
-            wizardState.description ? `"${wizardState.description}"` : '',
-            ``,
-            `This action publishes to the marketplace.`,
-          ].filter(Boolean).join('\\n');
-
-          const result = execSync(
-            `osascript -e 'display dialog "${dialogText}" buttons {"Cancel", "Publish"} default button "Cancel" with title "Telvok Publish"'`,
-            { encoding: 'utf-8', timeout: 120000 }
-          );
-
-          if (result.includes('Publish')) {
-            confirmMethod = 'dialog_confirmed';
-          }
-        } catch (err: unknown) {
-          // osascript exit code 1 = user clicked Cancel
-          // anything else = osascript couldn't run (sandbox, permissions, etc.) — fall through to code
-          const isUserCancel = err instanceof Error && 'status' in err && (err as { status: number }).status === 1;
-          if (isUserCancel) {
-            confirmMethod = 'dialog_cancelled';
-          }
-          // else confirmMethod stays 'code'
-        }
-      }
-
-      if (confirmMethod === 'dialog_confirmed') {
-        return await executePublish(wizardState);
-      }
-
-      if (confirmMethod === 'dialog_cancelled') {
-        wizardState = null;
-        return {
-          success: false,
-          message: 'Publish cancelled. Run library_publish() to start over.',
-        };
-      }
-
-      // Fallback: confirmation code
-      // Store the code in wizard state for validation
-      (wizardState as WizardState & { confirm_code: string }).confirm_code = confirmCode;
-
       return {
         success: true,
         step: 'confirm',
-        message: `📋 PUBLISH SUMMARY\n\n  Name: ${wizardState.name}\n  Entries: ${wizardState.selectedEntries!.length}\n  Pricing: ${priceDisplay}${wizardState.description ? `\n  Description: ${wizardState.description}` : ''}${wizardState.tags?.length ? `\n  Tags: ${wizardState.tags.join(', ')}` : ''}\n\n🔑 Confirmation code: ${confirmCode}`,
-        ask_user: `To publish, the user must type back the code: ${confirmCode}`,
+        message: `📋 PUBLISH SUMMARY\n\n  Name: ${wizardState.name}\n  Entries: ${wizardState.selectedEntries!.length}\n  Pricing: ${priceDisplay}${wizardState.description ? `\n  Description: ${wizardState.description}` : ''}${wizardState.tags?.length ? `\n  Tags: ${wizardState.tags.join(', ')}` : ''}`,
+        ask_user: 'Show this summary to the user. Ask: "Publish this? (yes/no)"',
       };
     }
 
     // ======================================================================
-    // STEP 5: Confirm with code → Publish
+    // STEP 5: User confirms → Publish
     // ======================================================================
     if (wizardState.step === 'confirm') {
-      const stored = (wizardState as WizardState & { confirm_code?: string }).confirm_code;
-
-      if (!input.confirm_code) {
+      if (!input.confirm) {
+        wizardState = null;
         return {
           success: false,
-          step: 'confirm',
-          message: 'Confirmation code required. The user must type the code shown in the summary.',
-          ask_user: 'Please type the confirmation code to publish.',
-        };
-      }
-
-      if (input.confirm_code.toUpperCase() !== stored?.toUpperCase()) {
-        return {
-          success: false,
-          step: 'confirm',
-          message: `Wrong code. Expected: ${stored}. Got: ${input.confirm_code}. Try again or run library_publish() to start over.`,
+          message: 'Publish cancelled. Run library_publish() to start over.',
         };
       }
 
