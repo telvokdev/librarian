@@ -30,6 +30,7 @@ import { bountySubmitTool } from './tools/bounty-submit.js';
 import { myBountiesTool } from './tools/my-bounties.js';
 import { deleteTool } from './tools/delete.js';
 import { unsubscribeTool } from './tools/unsubscribe.js';
+import { auditTool } from './tools/audit.js';
 
 // ---------------------------------------------------------------------------
 // Tool group definitions
@@ -61,6 +62,7 @@ const allTools: ToolEntry[] = [
   { tool: importMemoriesTool, group: 'core' },
   { tool: rebuildIndexTool,   group: 'core' },
   { tool: deleteTool,         group: 'core' },
+  { tool: auditTool,          group: 'core' },
 
   // Marketplace tools — cloud features
   { tool: librarySearchTool,   group: 'marketplace' },

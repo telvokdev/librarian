@@ -9,6 +9,7 @@ import { glob } from 'glob';
 import matter from 'gray-matter';
 import { loadApiKey } from './auth.js';
 import { getLibraryPath, getLocalPath } from '../library/storage.js';
+import { scanForSensitiveData } from '../library/sensitive-scanner.js';
 
 const TELVOK_API_URL = process.env.TELVOK_API_URL || 'https://telvok.com';
 
@@ -494,60 +495,6 @@ function extractSections(body: string): { main: string; reasoning?: string; exam
   }
 
   return result;
-}
-
-// ============================================================================
-// Sensitive Data Scanner
-// ============================================================================
-
-interface SensitiveFinding {
-  entry: string;
-  matches: string[];
-}
-
-const SENSITIVE_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
-  { pattern: /sk_(live|test)_[a-zA-Z0-9]{10,}/g, label: 'Stripe secret key' },
-  { pattern: /whsec_[a-zA-Z0-9]{10,}/g, label: 'Stripe webhook secret' },
-  { pattern: /tvk_[a-zA-Z0-9]{20,}/g, label: 'Telvok API key' },
-  { pattern: /\b[a-zA-Z0-9._%+-]+@(?!example\.com)[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b/g, label: 'email address' },
-  { pattern: /password\s*[:=]\s*['"][^'"]+['"]/gi, label: 'password value' },
-  { pattern: /secret\s*[:=]\s*['"][^'"]+['"]/gi, label: 'secret value' },
-  { pattern: /api[_-]?key\s*[:=]\s*['"][^'"]+['"]/gi, label: 'API key value' },
-  { pattern: /ghp_[a-zA-Z0-9]{36}/g, label: 'GitHub personal access token' },
-  { pattern: /xoxb-[a-zA-Z0-9-]+/g, label: 'Slack bot token' },
-  { pattern: /eyJ[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}/g, label: 'JWT token' },
-];
-
-function scanForSensitiveData(entries: CollectedEntry[]): SensitiveFinding[] {
-  const findings: SensitiveFinding[] = [];
-
-  for (const entry of entries) {
-    const textToScan = [
-      entry.content,
-      entry.intent,
-      entry.context,
-      entry.reasoning,
-      entry.example,
-    ].filter(Boolean).join('\n');
-
-    const matches: string[] = [];
-    for (const { pattern, label } of SENSITIVE_PATTERNS) {
-      // Reset lastIndex for global regex
-      pattern.lastIndex = 0;
-      if (pattern.test(textToScan)) {
-        matches.push(label);
-      }
-    }
-
-    if (matches.length > 0) {
-      findings.push({
-        entry: entry.title,
-        matches,
-      });
-    }
-  }
-
-  return findings;
 }
 
 // ============================================================================
