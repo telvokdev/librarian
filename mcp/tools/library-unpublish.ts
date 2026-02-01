@@ -1,26 +1,36 @@
 // ============================================================================
 // Marketplace Unpublish Tool
-// Remove a published book from Telvok library
+// Two-step: preview → osascript dialog / confirmation code → delete
 // ============================================================================
 
 import * as crypto from 'crypto';
+import { execSync } from 'child_process';
+import { platform } from 'os';
 import { loadApiKey } from './auth.js';
 
 const TELVOK_API_URL = process.env.TELVOK_API_URL || 'https://telvok.com';
 
 // ============================================================================
-// Unpublish Token Store
-// Preview generates a token. Unpublish requires it. Single-use, 5min expiry.
+// Pending State — preview stores book info + confirm code, expires 5 min
 // ============================================================================
 
-interface UnpublishToken {
-  token: string;
+interface PendingUnpublish {
   slug: string;
+  bookName: string;
+  entriesCount: number;
+  pricing: string;
+  confirmCode: string;
   created: number;
 }
 
-const TOKEN_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
-let pendingUnpublish: UnpublishToken | null = null;
+const EXPIRY_MS = 5 * 60 * 1000;
+let pending: PendingUnpublish | null = null;
+
+function clearExpired() {
+  if (pending && Date.now() - pending.created > EXPIRY_MS) {
+    pending = null;
+  }
+}
 
 // ============================================================================
 // Types
@@ -28,8 +38,7 @@ let pendingUnpublish: UnpublishToken | null = null;
 
 interface UnpublishArgs {
   slug: string;
-  preview?: boolean;
-  unpublish_token?: string;
+  confirm_code?: string;
 }
 
 // ============================================================================
@@ -41,24 +50,22 @@ export const libraryUnpublishTool = {
   title: 'Unpublish Book',
   description: `Remove a published book from Telvok marketplace.
 
-⚠️ TWO-STEP UNPUBLISH FLOW (MANDATORY):
+TWO-STEP FLOW:
 
-Step 1: ALWAYS call with preview: true first. Shows what will be deleted
-and returns an unpublish_token. Show the preview to the user and ASK FOR CONFIRMATION.
+Step 1: Call with just slug. Shows book details and what will be deleted.
+On macOS, a native confirmation dialog appears — the agent CANNOT bypass it.
+On other platforms, a confirmation code is returned that the user must type back.
 
-Step 2: ONLY after the user explicitly confirms, call again with the unpublish_token
-from the preview response. Unpublishing WITHOUT a valid token will be rejected.
+Step 2 (non-macOS only): Call again with slug + confirm_code from the user.
 
 RESTRICTIONS:
 - Cannot unpublish books with active purchases
 - Deletion is PERMANENT — all entries are removed from marketplace
 
-TRIGGER PATTERNS:
-- "Unpublish my book" → library_unpublish({ slug: "...", preview: true })
-- "Remove from marketplace" → library_unpublish({ slug: "...", preview: true })
-- User says "yes, delete it" → library_unpublish({ slug: "...", unpublish_token: "<token>" })
+Use my_books() first to see your published books and their slugs.
 
-Use my_books() first to see your published books and their slugs.`,
+DO NOT decide to unpublish without the user explicitly asking.
+Show the preview details and wait for user confirmation.`,
 
   inputSchema: {
     type: 'object' as const,
@@ -67,141 +74,144 @@ Use my_books() first to see your published books and their slugs.`,
         type: 'string',
         description: 'Book slug (from my_books output)',
       },
-      preview: {
-        type: 'boolean',
-        description: 'If true, show what would be deleted without deleting. Returns an unpublish_token.',
-      },
-      unpublish_token: {
+      confirm_code: {
         type: 'string',
-        description: 'Token from preview response. Required to actually unpublish. Single-use, expires in 5 minutes.',
+        description: 'Confirmation code from preview. User must type this back. Only needed on non-macOS.',
       },
     },
     required: ['slug'],
   },
 
   async handler(args: unknown) {
-    const { slug, preview, unpublish_token } = (args || {}) as UnpublishArgs;
+    const { slug, confirm_code } = (args || {}) as UnpublishArgs;
+    clearExpired();
 
-    // Validate slug
     if (!slug || typeof slug !== 'string') {
       return { success: false, message: 'slug is required. Use my_books() to see your published books.' };
     }
 
-    // Load API key
     const apiKey = await loadApiKey();
     if (!apiKey) {
-      return {
-        success: false,
-        message: 'Not authenticated. Run auth({ action: "login" }) first.',
-      };
+      return { success: false, message: 'Not authenticated. Run auth({ action: "login" }) first.' };
     }
 
     // ========================================================================
-    // PREVIEW MODE — show what will be deleted, generate token
+    // CONFIRM STEP — user typed back the code
     // ========================================================================
-    if (preview) {
-      // Fetch book details via my-books to confirm it exists and we own it
-      const res = await fetch(`${TELVOK_API_URL}/api/my-books`, {
-        headers: { 'Authorization': `Bearer ${apiKey}` },
-      });
-
-      if (!res.ok) {
-        return { success: false, message: `Failed to fetch books: ${res.status}` };
-      }
-
-      const data = await res.json();
-      const book = data.published?.find((b: { slug: string }) => b.slug === slug);
-
-      if (!book) {
+    if (confirm_code) {
+      if (!pending || pending.slug !== slug) {
         return {
           success: false,
-          message: `No published book found with slug "${slug}". Use my_books() to see your books.`,
+          message: 'No pending unpublish for this slug. Call library_unpublish({ slug }) first to preview.',
         };
       }
 
-      // Generate token
-      const token = crypto.randomBytes(16).toString('hex');
-      pendingUnpublish = { token, slug, created: Date.now() };
+      if (confirm_code.toUpperCase() !== pending.confirmCode.toUpperCase()) {
+        return {
+          success: false,
+          message: `Wrong code. Expected: ${pending.confirmCode}. Got: ${confirm_code}. Try again.`,
+        };
+      }
 
-      return {
-        success: true,
-        preview: true,
-        message: `Preview of unpublish — NOT deleted yet.\n\n⚠️ Show this to the user and ask for confirmation before unpublishing.`,
-        unpublish_token: token,
-        book: {
-          slug: book.slug,
-          name: book.name,
-          entries_count: book.entries_count,
-          pricing: book.pricing,
-          url: book.url,
-        },
-        next_steps: 'Show preview to user. After they confirm, call library_unpublish() again with the unpublish_token to delete.',
-      };
+      pending = null;
+      return await executeUnpublish(slug, apiKey);
     }
 
     // ========================================================================
-    // EXECUTE MODE — validate token, call API to delete
+    // PREVIEW STEP — fetch book details, show confirmation
     // ========================================================================
 
-    // Token required
-    if (!unpublish_token) {
-      return {
-        success: false,
-        message: '🚫 Unpublishing requires an unpublish_token. Call with preview: true first to get one.',
-      };
-    }
-
-    // Validate token
-    if (!pendingUnpublish || pendingUnpublish.token !== unpublish_token) {
-      return {
-        success: false,
-        message: '🚫 Invalid or expired unpublish_token. Run a new preview to get a fresh token.',
-      };
-    }
-
-    // Check expiry
-    if (Date.now() - pendingUnpublish.created > TOKEN_EXPIRY_MS) {
-      pendingUnpublish = null;
-      return {
-        success: false,
-        message: '🚫 Unpublish token expired (5 minute limit). Run a new preview.',
-      };
-    }
-
-    // Check slug matches
-    if (pendingUnpublish.slug !== slug) {
-      return {
-        success: false,
-        message: `🚫 Token was generated for slug "${pendingUnpublish.slug}", not "${slug}". Run a new preview.`,
-      };
-    }
-
-    // Consume token (single use)
-    pendingUnpublish = null;
-
-    // Call API
-    const res = await fetch(`${TELVOK_API_URL}/api/publish`, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ slug }),
+    const res = await fetch(`${TELVOK_API_URL}/api/my-books`, {
+      headers: { 'Authorization': `Bearer ${apiKey}` },
     });
 
-    const data = await res.json();
-
     if (!res.ok) {
+      return { success: false, message: `Failed to fetch books: ${res.status}` };
+    }
+
+    const data = await res.json();
+    const book = data.published?.find((b: { slug: string }) => b.slug === slug);
+
+    if (!book) {
       return {
         success: false,
-        message: data.message || data.error || `Unpublish failed: ${res.status}`,
+        message: `No published book found with slug "${slug}". Use my_books() to see your books.`,
       };
     }
+
+    const bookName = book.name || slug;
+    const entriesCount = book.entries_count || book.entry_count || 0;
+    const pricing = book.pricing_type || book.pricing || 'unknown';
+
+    // Try native dialog on macOS
+    if (platform() === 'darwin') {
+      try {
+        const dialogText = [
+          `Permanently unpublish "${bookName}"?`,
+          ``,
+          `${entriesCount} entries — ${pricing}`,
+          ``,
+          `This removes the book from the marketplace.`,
+          `This action cannot be undone.`,
+        ].join('\\n');
+
+        const result = execSync(
+          `osascript -e 'display dialog "${dialogText}" buttons {"Cancel", "Delete"} default button "Cancel" with title "Telvok Unpublish" with icon caution'`,
+          { encoding: 'utf-8', timeout: 120000 }
+        );
+
+        if (result.includes('Delete')) {
+          return await executeUnpublish(slug, apiKey);
+        }
+      } catch {
+        // User clicked Cancel or osascript failed
+        return {
+          success: false,
+          message: 'Unpublish cancelled.',
+        };
+      }
+    }
+
+    // Fallback: confirmation code
+    const confirmCode = crypto.randomBytes(3).toString('hex').toUpperCase();
+    pending = { slug, bookName, entriesCount, pricing, confirmCode, created: Date.now() };
 
     return {
       success: true,
-      message: data.message || `Unpublished "${slug}" from marketplace`,
-      book: data.book,
+      preview: true,
+      message: `⚠️ UNPUBLISH PREVIEW\n\n  Book: ${bookName}\n  Slug: ${slug}\n  Entries: ${entriesCount}\n  Pricing: ${pricing}\n\n  This action is PERMANENT.\n\n🔑 Confirmation code: ${confirmCode}`,
+      ask_user: `To delete this book from the marketplace, the user must type back the code: ${confirmCode}`,
+      book: { slug, name: bookName, entries_count: entriesCount, pricing },
     };
   },
 };
+
+// ============================================================================
+// Execute Unpublish — called after confirmation
+// ============================================================================
+
+async function executeUnpublish(slug: string, apiKey: string) {
+  const res = await fetch(`${TELVOK_API_URL}/api/publish`, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ slug }),
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    return {
+      success: false,
+      message: data.message || data.error || `Unpublish failed: ${res.status}`,
+    };
+  }
+
+  return {
+    success: true,
+    message: data.message || `Unpublished "${slug}" from marketplace`,
+    book: data.book,
+  };
+}

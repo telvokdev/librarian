@@ -1,11 +1,14 @@
 // ============================================================================
-// Marketplace Publish Tool
-// Publish local entries as a book on Telvok library
+// Marketplace Publish Tool — Multi-Step Wizard
+// Each call advances one step. Tool refuses to skip ahead.
+// Agent relays between user and tool. User makes every decision.
 // ============================================================================
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { execSync } from 'child_process';
+import { platform } from 'os';
 import { glob } from 'glob';
 import matter from 'gray-matter';
 import { loadApiKey } from './auth.js';
@@ -15,43 +18,48 @@ import { scanForSensitiveData } from '../library/sensitive-scanner.js';
 const TELVOK_API_URL = process.env.TELVOK_API_URL || 'https://telvok.com';
 
 // ============================================================================
-// Publish Token Store
-// Preview generates a token. Publish requires it. Single-use, 5min expiry.
-// This prevents agents from publishing without user-reviewed preview.
+// Wizard State — persists between calls, expires after 10 min
 // ============================================================================
 
-interface PublishToken {
-  token: string;
-  name: string;
-  entries_count: number;
+interface WizardState {
+  step: 'select_entries' | 'set_pricing' | 'set_details' | 'confirm';
+  allEntries: CollectedEntry[];
+  selectedEntries?: CollectedEntry[];
+  sensitiveWarnings?: string[];
+  pricing?: { type: string; price_cents?: number };
+  consumption?: string;
+  name?: string;
+  description?: string;
+  tags?: string[];
+  license?: string;
   created: number;
 }
 
-const TOKEN_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
-let pendingPublish: PublishToken | null = null;
+const WIZARD_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
+let wizardState: WizardState | null = null;
+
+function clearExpiredWizard() {
+  if (wizardState && Date.now() - wizardState.created > WIZARD_EXPIRY_MS) {
+    wizardState = null;
+  }
+}
 
 // ============================================================================
 // Types
 // ============================================================================
 
 interface PublishArgs {
-  name: string;
-  description?: string;
-  pricing: {
+  entries?: string[];   // Step 2: selected entry filenames ("all" or list)
+  pricing?: {
     type: 'open' | 'one_time' | 'subscription';
     price_cents?: number;
   };
-  consumption?: 'inline' | 'reference' | 'download';
-  attestation?: {
-    original_work: boolean;
-    no_secrets: boolean;
-    terms_accepted: boolean;
-  };
-  preview?: boolean;
-  publish_token?: string;
-  entries?: string[];
+  consumption?: string;
+  name?: string;
+  description?: string;
   tags?: string[];
-  license?: 'open' | 'open_attributed' | 'personal';
+  license?: string;
+  confirm_code?: string; // Final step: user types back the code
 }
 
 interface CollectedEntry {
@@ -64,30 +72,6 @@ interface CollectedEntry {
   originalPath: string;
 }
 
-interface PublishResult {
-  success: boolean;
-  message: string;
-  publish_token?: string;
-  book?: {
-    id?: string;
-    slug: string;
-    name: string;
-    url: string;
-  };
-  entries_count?: number;
-  setup_url?: string;
-  preview?: boolean;
-  summary?: {
-    name: string;
-    pricing: { type: string; display: string };
-    entries_count: number;
-    entries: Array<{ title: string; file: string }>;
-  };
-  next_steps?: string;
-  options?: Record<string, string>;
-  required?: Record<string, string>;
-}
-
 // ============================================================================
 // Tool Definition
 // ============================================================================
@@ -95,358 +79,443 @@ interface PublishResult {
 export const libraryPublishTool = {
   name: 'library_publish',
   title: 'Publish Book',
-  description: `Publish local entries as a book on Telvok library.
+  description: `Publish local entries as a book on Telvok marketplace.
 
-⚠️ TWO-STEP PUBLISH FLOW (MANDATORY):
+This is a GUIDED WIZARD. Call with no arguments to start.
+The tool walks through each step — DO NOT try to provide all arguments at once.
 
-Step 1: ALWAYS call with preview: true first. This shows what will be published
-and returns a publish_token. Show the preview to the user and ASK FOR CONFIRMATION.
+FLOW:
+1. library_publish() → scans entries, shows audit. Ask user which to include.
+2. library_publish({ entries: ["all"] }) → shows pricing options. Ask user to choose.
+3. library_publish({ pricing: { type: "open" } }) → asks for name/description.
+4. library_publish({ name: "...", description: "..." }) → shows summary, requires user confirmation.
 
-Step 2: ONLY after the user explicitly confirms, call again with the publish_token
-from the preview response. Publishing WITHOUT a valid token will be rejected.
+Each step REQUIRES the user's input before proceeding. DO NOT decide for the user.
+DO NOT provide name, pricing, entries, or description without asking the user first.
 
-DO NOT skip the preview. DO NOT publish without user confirmation.
-The tool will refuse to publish without a valid publish_token from a preview.
-
-TRIGGER PATTERNS:
-- "Publish my entries" → library_publish({ name: "...", pricing: { type: "open" }, preview: true })
-- User says "yes, publish it" → library_publish({ ..., publish_token: "<token from preview>" })
-
-Examples:
-- Preview: library_publish({ name: "My Book", pricing: { type: "open" }, preview: true })
-- Publish: library_publish({ name: "My Book", pricing: { type: "open" }, consumption: "download", attestation: { original_work: true, no_secrets: true, terms_accepted: true }, publish_token: "abc123" })`,
+If the user says "publish my entries" — call library_publish() with NO args to start the wizard.`,
 
   inputSchema: {
     type: 'object' as const,
     properties: {
-      name: {
-        type: 'string',
-        description: 'Book title (3-100 characters)',
-      },
-      description: {
-        type: 'string',
-        description: 'Short description of the book (optional, max 500 chars)',
+      entries: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Entry filenames to include. Use ["all"] for everything. Only provide after showing user the entry list.',
       },
       pricing: {
         type: 'object',
         properties: {
-          type: {
-            type: 'string',
-            enum: ['open', 'one_time', 'subscription'],
-            description: 'Pricing model',
-          },
-          price_cents: {
-            type: 'number',
-            description: 'Price in cents (required for paid, min 100 = $1.00)',
-          },
+          type: { type: 'string', enum: ['open', 'one_time', 'subscription'] },
+          price_cents: { type: 'number' },
         },
-        required: ['type'],
-        description: 'Pricing configuration',
+        description: 'Only provide after showing user the pricing options.',
       },
       consumption: {
         type: 'string',
         enum: ['inline', 'reference', 'download'],
-        description: 'How buyers access content. download only for free books.',
+        description: 'How buyers access content. Only relevant for paid books.',
       },
-      attestation: {
-        type: 'object',
-        properties: {
-          original_work: { type: 'boolean', description: 'Confirm this is original work' },
-          no_secrets: { type: 'boolean', description: 'Confirm no secrets/credentials' },
-          terms_accepted: { type: 'boolean', description: 'Accept library terms' },
-        },
-        required: ['original_work', 'no_secrets', 'terms_accepted'],
-        description: 'Required confirmations before publishing',
-      },
-      preview: {
-        type: 'boolean',
-        description: 'If true, show what would be published without publishing. Returns a publish_token.',
-      },
-      publish_token: {
-        type: 'string',
-        description: 'Token from preview response. Required to actually publish. Single-use, expires in 5 minutes.',
-      },
-      entries: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Specific entry filenames to include (omit for all local/)',
-      },
-      tags: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Category/topic tags (max 10)',
-      },
-      license: {
-        type: 'string',
-        enum: ['open', 'open_attributed', 'personal'],
-        description: 'License type (default: personal)',
-      },
+      name: { type: 'string', description: 'Book title. Only provide after user tells you what to call it.' },
+      description: { type: 'string', description: 'Book description. Only provide after user writes or approves it.' },
+      tags: { type: 'array', items: { type: 'string' }, description: 'Topic tags (max 10).' },
+      license: { type: 'string', enum: ['open', 'open_attributed', 'personal'] },
+      confirm_code: { type: 'string', description: 'Confirmation code from the final summary. User must type this back.' },
     },
-    required: ['name', 'pricing'],
+    required: [],
   },
 
-  async handler(args: unknown): Promise<PublishResult> {
-    const { name, description, pricing, consumption, attestation, preview, publish_token, entries: entryFilter, tags, license } = args as PublishArgs;
+  async handler(args: unknown) {
+    const input = (args || {}) as PublishArgs;
+    clearExpiredWizard();
 
-    // Validate name
-    if (!name || typeof name !== 'string' || name.trim().length < 3) {
-      throw new Error('Book name is required (minimum 3 characters)');
-    }
-    if (name.trim().length > 100) {
-      throw new Error('Book name must be 100 characters or less');
-    }
+    // ======================================================================
+    // STEP 1: No wizard state → Scan entries, show audit
+    // ======================================================================
+    if (!wizardState) {
+      const allEntries = await collectLocalEntries();
 
-    // Validate pricing
-    if (!pricing || !pricing.type) {
-      throw new Error('Pricing type is required');
-    }
-    if (!['open', 'one_time', 'subscription'].includes(pricing.type)) {
-      throw new Error('Pricing type must be: open, one_time, or subscription');
-    }
-    if (pricing.type !== 'open' && (!pricing.price_cents || pricing.price_cents < 100)) {
-      throw new Error('Paid books require price_cents >= 100 ($1.00)');
-    }
-    if (pricing.price_cents && pricing.price_cents > 100000) {
-      throw new Error('Price cannot exceed $1000.00 (100000 cents)');
-    }
-
-    // Validate description length
-    if (description && description.length > 500) {
-      throw new Error('Description must be 500 characters or less');
-    }
-
-    // Validate tags count
-    if (tags && tags.length > 10) {
-      throw new Error('Maximum 10 tags allowed');
-    }
-
-    // Collect entries from local/ (needed for preview and publish)
-    const collectedEntries = await collectLocalEntries(entryFilter);
-
-    // Scan for sensitive data before publishing
-    const sensitiveFindings = scanForSensitiveData(collectedEntries);
-    if (sensitiveFindings.length > 0) {
-      const warnings = sensitiveFindings.map(f =>
-        `  ⚠ ${f.entry}: ${f.matches.join(', ')}`
-      ).join('\n');
-
-      if (preview) {
-        // In preview mode, show warnings but continue
+      if (allEntries.length === 0) {
         return {
-          success: true,
-          preview: true,
-          message: `⚠ SENSITIVE DATA DETECTED in ${sensitiveFindings.length} entry(s):\n${warnings}\n\nReview these entries before publishing. Remove credentials, API keys, passwords, and personal data.`,
+          success: false,
+          message: 'No entries found in .librarian/local/. Use record() to create entries first.',
         };
       }
 
-      // In publish mode, block and require cleanup
-      return {
-        success: false,
-        message: `🚫 Publish blocked — sensitive data detected in ${sensitiveFindings.length} entry(s):\n${warnings}\n\nClean up these entries with record() or delete() before publishing. Use library_publish({ preview: true }) to re-check.`,
-      };
-    }
+      // Run sensitive data scan
+      const sensitiveFindings = scanForSensitiveData(allEntries);
 
-    if (collectedEntries.length === 0) {
-      return {
-        success: false,
-        message: 'No entries found in .librarian/local/. Use record() to create entries first.',
-      };
-    }
+      // Group entries by folder/topic
+      const groups: Record<string, string[]> = {};
+      for (const entry of allEntries) {
+        const rel = path.relative(getLocalPath(getLibraryPath()), entry.originalPath);
+        const folder = path.dirname(rel);
+        const key = folder === '.' ? 'root' : folder;
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(entry.title);
+      }
 
-    // Format pricing display
-    const pricingDisplay = pricing.type === 'open'
-      ? 'Free'
-      : `$${((pricing.price_cents || 0) / 100).toFixed(2)}`;
+      // Build topic breakdown
+      const topicLines = Object.entries(groups)
+        .sort((a, b) => b[1].length - a[1].length)
+        .map(([folder, titles]) => `  ${folder}/ (${titles.length} entries)`)
+        .join('\n');
 
-    // Handle preview mode - return summary with publish token
-    if (preview) {
-      const token = crypto.randomBytes(16).toString('hex');
-      pendingPublish = {
-        token,
-        name: name.trim(),
-        entries_count: collectedEntries.length,
+      // Build warnings
+      const warnings: string[] = [];
+      if (sensitiveFindings.length > 0) {
+        warnings.push(`\n⚠️ SENSITIVE DATA found in ${sensitiveFindings.length} entry(s):`);
+        for (const f of sensitiveFindings) {
+          warnings.push(`  ⚠ "${f.entry}": ${f.matches.join(', ')}`);
+        }
+        warnings.push('\nThese entries should be cleaned up before publishing.');
+      }
+
+      // Save state
+      wizardState = {
+        step: 'select_entries',
+        allEntries,
+        sensitiveWarnings: warnings.length > 0 ? warnings : undefined,
         created: Date.now(),
       };
 
       return {
         success: true,
-        preview: true,
-        message: `Preview of "${name.trim()}" - NOT published yet.\n\n⚠️ Show this to the user and ask for confirmation before publishing.`,
-        publish_token: token,
-        summary: {
-          name: name.trim(),
-          pricing: { type: pricing.type, display: pricingDisplay },
-          entries_count: collectedEntries.length,
-          entries: collectedEntries.map(e => ({
-            title: e.title,
-            file: path.basename(e.originalPath),
-          })),
-        },
-        next_steps: 'Show preview to user. After they confirm, call library_publish() again with the publish_token to publish.',
+        step: 'select_entries',
+        message: `📚 Found ${allEntries.length} entries in your library.\n\nTopics:\n${topicLines}${warnings.length > 0 ? '\n' + warnings.join('\n') : ''}`,
+        entries_count: allEntries.length,
+        ask_user: 'Which entries do you want to include? Say "all" or list specific ones to exclude.',
       };
     }
 
-    // ========================================================================
-    // PUBLISH TOKEN VALIDATION
-    // Cannot publish without a valid token from preview
-    // ========================================================================
-    if (!publish_token) {
-      return {
-        success: false,
-        message: '🚫 Publishing requires a publish_token from a preview.\n\nYou must call library_publish({ preview: true, ... }) first, show the preview to the user, get their confirmation, then call again with the publish_token.\n\nThis is a safety measure to prevent accidental publishing.',
-      };
-    }
-
-    if (!pendingPublish || pendingPublish.token !== publish_token) {
-      return {
-        success: false,
-        message: '🚫 Invalid or expired publish_token. Run a new preview first with library_publish({ preview: true, ... }).',
-      };
-    }
-
-    if (Date.now() - pendingPublish.created > TOKEN_EXPIRY_MS) {
-      pendingPublish = null;
-      return {
-        success: false,
-        message: '🚫 Publish token expired (5 minute limit). Run a new preview first.',
-      };
-    }
-
-    // Token is valid — consume it (single use)
-    pendingPublish = null;
-
-    // Validate consumption type (required for actual publish)
-    if (!consumption) {
-      return {
-        success: false,
-        message: 'Consumption type required. Choose how buyers access your content:',
-        options: {
-          inline: 'Content returned in API responses (best for small entries)',
-          reference: 'README + pointers to entries (best for larger books)',
-          download: 'Download to local library (only for free/open books)',
-        },
-      };
-    }
-    if (!['inline', 'reference', 'download'].includes(consumption)) {
-      return {
-        success: false,
-        message: 'Invalid consumption type. Must be: inline, reference, or download',
-      };
-    }
-    if (consumption === 'download' && pricing.type !== 'open') {
-      return {
-        success: false,
-        message: 'Download is only for free books. Paid content uses inline or reference.',
-        next_steps: "Use pricing.type: 'open' for download, or consumption: 'inline'/'reference' for paid.",
-      };
-    }
-
-    // Validate attestation (required for actual publish)
-    if (!attestation) {
-      return {
-        success: false,
-        message: 'Attestation required. Please confirm:',
-        required: {
-          original_work: 'This is my original work or I have rights to publish',
-          no_secrets: 'Contains no secrets, credentials, or sensitive data',
-          terms_accepted: 'I accept the Telvok library terms',
-        },
-      };
-    }
-    const failedAttestations: string[] = [];
-    if (!attestation.original_work) failedAttestations.push('original_work');
-    if (!attestation.no_secrets) failedAttestations.push('no_secrets');
-    if (!attestation.terms_accepted) failedAttestations.push('terms_accepted');
-    if (failedAttestations.length > 0) {
-      return {
-        success: false,
-        message: `All attestation fields must be true to publish. Failed: ${failedAttestations.join(', ')}`,
-      };
-    }
-
-    // Check authentication
-    const apiKey = await loadApiKey();
-    if (!apiKey) {
-      return {
-        success: false,
-        message: 'Not authenticated. Run auth({ action: "login" }) to connect your Telvok account first.',
-      };
-    }
-
-    // Format entries for API
-    const apiEntries = collectedEntries.map(e => ({
-      title: e.title,
-      content: e.content,
-      intent: e.intent,
-      context: e.context,
-      reasoning: e.reasoning,
-      example: e.example,
-    }));
-
-    // Build request body
-    const requestBody = {
-      name: name.trim(),
-      description: description?.trim(),
-      pricing,
-      consumption,
-      entries: apiEntries,
-      tags: tags || [],
-      license_type: license || 'personal',
-      attestation,
-    };
-
-    try {
-      const response = await fetch(`${TELVOK_API_URL}/api/publish`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        // Handle Stripe Connect requirement
-        if (data.error === 'stripe_connect_required') {
-          return {
-            success: false,
-            message: `Stripe Connect required to sell paid content.\n\nComplete setup at: ${data.setup_url}`,
-            setup_url: data.setup_url,
-          };
-        }
-
-        // Handle validation errors
-        if (data.error === 'validation_error') {
-          const details = Object.entries(data.details || {})
-            .map(([k, v]) => `  - ${k}: ${v}`)
-            .join('\n');
-          return {
-            success: false,
-            message: `Validation failed:\n${details}`,
-          };
-        }
-
+    // ======================================================================
+    // STEP 2: Select entries → Show pricing options
+    // ======================================================================
+    if (wizardState.step === 'select_entries') {
+      if (!input.entries || input.entries.length === 0) {
         return {
           success: false,
-          message: data.error || `Publish failed: HTTP ${response.status}`,
+          step: 'select_entries',
+          message: 'Waiting for entry selection. Ask the user which entries to include.',
+          ask_user: 'Which entries do you want to include? Say "all" or list specific ones.',
         };
       }
 
+      let selected: CollectedEntry[];
+      if (input.entries.length === 1 && input.entries[0].toLowerCase() === 'all') {
+        selected = [...wizardState.allEntries];
+      } else {
+        selected = wizardState.allEntries.filter(e => {
+          const filename = path.basename(e.originalPath);
+          return input.entries!.some(f =>
+            filename === f ||
+            filename === f + '.md' ||
+            e.originalPath.endsWith(f) ||
+            e.originalPath.endsWith(f + '.md') ||
+            e.title.toLowerCase().includes(f.toLowerCase())
+          );
+        });
+
+        if (selected.length === 0) {
+          return {
+            success: false,
+            step: 'select_entries',
+            message: 'No entries matched your selection. Try again with different names or say "all".',
+          };
+        }
+      }
+
+      // Re-check sensitive data on selected entries only
+      const sensitiveFindings = scanForSensitiveData(selected);
+      if (sensitiveFindings.length > 0) {
+        const warnings = sensitiveFindings.map(f =>
+          `  ⚠ "${f.entry}": ${f.matches.join(', ')}`
+        ).join('\n');
+
+        return {
+          success: false,
+          step: 'select_entries',
+          message: `🚫 Cannot proceed — sensitive data detected in selected entries:\n${warnings}\n\nClean up these entries with record() or delete() first, then start over with library_publish().`,
+        };
+      }
+
+      wizardState.selectedEntries = selected;
+      wizardState.step = 'set_pricing';
+
       return {
         success: true,
-        message: data.message || `Published "${data.book?.name}" with ${data.entries_count} entries`,
-        book: data.book,
-        entries_count: data.entries_count,
+        step: 'set_pricing',
+        message: `✓ ${selected.length} entries selected.\n\nChoose a pricing model:\n\n  📖 open — Free. Anyone can download to their local library.\n  💰 one_time — One-time purchase. You set the price (min $1). Cloud-only access. 20% platform fee.\n  🔄 subscription — Monthly subscription. You set the price (min $1/mo). Cloud-only, always latest. 20% platform fee.`,
+        selected_count: selected.length,
+        ask_user: 'Which pricing model? If paid, what price?',
       };
-
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Publish failed: ${message}`);
     }
+
+    // ======================================================================
+    // STEP 3: Set pricing → Ask for name/description
+    // ======================================================================
+    if (wizardState.step === 'set_pricing') {
+      if (!input.pricing || !input.pricing.type) {
+        return {
+          success: false,
+          step: 'set_pricing',
+          message: 'Waiting for pricing selection. Ask the user which pricing model they want.',
+          ask_user: 'Which pricing model? open (free), one_time, or subscription?',
+        };
+      }
+
+      if (!['open', 'one_time', 'subscription'].includes(input.pricing.type)) {
+        return {
+          success: false,
+          step: 'set_pricing',
+          message: 'Invalid pricing type. Must be: open, one_time, or subscription.',
+        };
+      }
+
+      if (input.pricing.type !== 'open') {
+        if (!input.pricing.price_cents || input.pricing.price_cents < 100) {
+          return {
+            success: false,
+            step: 'set_pricing',
+            message: 'Paid books require a price of at least $1.00 (100 cents).',
+            ask_user: 'What price? (in dollars, e.g. $5 = 500 cents)',
+          };
+        }
+        if (input.pricing.price_cents > 100000) {
+          return {
+            success: false,
+            step: 'set_pricing',
+            message: 'Maximum price is $1000.00.',
+          };
+        }
+      }
+
+      // Set consumption based on pricing
+      let consumption = input.consumption;
+      if (input.pricing.type === 'open') {
+        consumption = 'download';
+      } else if (!consumption || !['inline', 'reference'].includes(consumption)) {
+        consumption = 'inline'; // default for paid
+      }
+
+      wizardState.pricing = input.pricing;
+      wizardState.consumption = consumption;
+      wizardState.step = 'set_details';
+
+      const priceDisplay = input.pricing.type === 'open'
+        ? 'Free (download)'
+        : `$${(input.pricing.price_cents! / 100).toFixed(2)}/${input.pricing.type === 'subscription' ? 'mo' : 'once'} (20% platform fee)`;
+
+      return {
+        success: true,
+        step: 'set_details',
+        message: `✓ Pricing: ${priceDisplay}\n\nNow give your book a name and description.`,
+        ask_user: 'What do you want to call this book? And a short description (optional, max 500 chars)?',
+      };
+    }
+
+    // ======================================================================
+    // STEP 4: Set details → Final confirmation
+    // ======================================================================
+    if (wizardState.step === 'set_details') {
+      if (!input.name || input.name.trim().length < 3) {
+        return {
+          success: false,
+          step: 'set_details',
+          message: 'Book name required (at least 3 characters).',
+          ask_user: 'What do you want to call this book?',
+        };
+      }
+      if (input.name.trim().length > 100) {
+        return {
+          success: false,
+          step: 'set_details',
+          message: 'Book name must be 100 characters or less.',
+        };
+      }
+      if (input.description && input.description.length > 500) {
+        return {
+          success: false,
+          step: 'set_details',
+          message: 'Description must be 500 characters or less.',
+        };
+      }
+
+      wizardState.name = input.name.trim();
+      wizardState.description = input.description?.trim();
+      wizardState.tags = input.tags;
+      wizardState.license = input.license || 'personal';
+      wizardState.step = 'confirm';
+
+      // Generate confirmation code
+      const confirmCode = crypto.randomBytes(3).toString('hex').toUpperCase(); // 6 chars
+
+      const priceDisplay = wizardState.pricing!.type === 'open'
+        ? 'Free (download)'
+        : `$${(wizardState.pricing!.price_cents! / 100).toFixed(2)}/${wizardState.pricing!.type === 'subscription' ? 'mo' : 'once'}`;
+
+      // Try native dialog on macOS
+      let confirmMethod = 'code';
+      if (platform() === 'darwin') {
+        try {
+          const dialogText = [
+            `Publish "${wizardState.name}" to Telvok?`,
+            ``,
+            `${wizardState.selectedEntries!.length} entries — ${priceDisplay}`,
+            wizardState.description ? `"${wizardState.description}"` : '',
+            ``,
+            `This action publishes to the marketplace.`,
+          ].filter(Boolean).join('\\n');
+
+          const result = execSync(
+            `osascript -e 'display dialog "${dialogText}" buttons {"Cancel", "Publish"} default button "Cancel" with title "Telvok Publish"'`,
+            { encoding: 'utf-8', timeout: 120000 }
+          );
+
+          if (result.includes('Publish')) {
+            confirmMethod = 'dialog_confirmed';
+          }
+        } catch {
+          // User clicked Cancel or osascript failed — fall through to code method
+          confirmMethod = 'dialog_cancelled';
+        }
+      }
+
+      if (confirmMethod === 'dialog_confirmed') {
+        // User confirmed via native dialog — publish immediately
+        return await executePublish(wizardState);
+      }
+
+      if (confirmMethod === 'dialog_cancelled') {
+        wizardState = null;
+        return {
+          success: false,
+          message: 'Publish cancelled. Run library_publish() to start over.',
+        };
+      }
+
+      // Fallback: confirmation code
+      // Store the code in wizard state for validation
+      (wizardState as WizardState & { confirm_code: string }).confirm_code = confirmCode;
+
+      return {
+        success: true,
+        step: 'confirm',
+        message: `📋 PUBLISH SUMMARY\n\n  Name: ${wizardState.name}\n  Entries: ${wizardState.selectedEntries!.length}\n  Pricing: ${priceDisplay}${wizardState.description ? `\n  Description: ${wizardState.description}` : ''}${wizardState.tags?.length ? `\n  Tags: ${wizardState.tags.join(', ')}` : ''}\n\n🔑 Confirmation code: ${confirmCode}`,
+        ask_user: `To publish, the user must type back the code: ${confirmCode}`,
+      };
+    }
+
+    // ======================================================================
+    // STEP 5: Confirm with code → Publish
+    // ======================================================================
+    if (wizardState.step === 'confirm') {
+      const stored = (wizardState as WizardState & { confirm_code?: string }).confirm_code;
+
+      if (!input.confirm_code) {
+        return {
+          success: false,
+          step: 'confirm',
+          message: 'Confirmation code required. The user must type the code shown in the summary.',
+          ask_user: 'Please type the confirmation code to publish.',
+        };
+      }
+
+      if (input.confirm_code.toUpperCase() !== stored?.toUpperCase()) {
+        return {
+          success: false,
+          step: 'confirm',
+          message: `Wrong code. Expected: ${stored}. Got: ${input.confirm_code}. Try again or run library_publish() to start over.`,
+        };
+      }
+
+      return await executePublish(wizardState);
+    }
+
+    return { success: false, message: 'Unknown state. Run library_publish() to start over.' };
   },
 };
+
+// ============================================================================
+// Execute Publish — called after confirmation
+// ============================================================================
+
+async function executePublish(state: WizardState) {
+  const apiKey = await loadApiKey();
+  if (!apiKey) {
+    wizardState = null;
+    return {
+      success: false,
+      message: 'Not authenticated. Run auth({ action: "login" }) first.',
+    };
+  }
+
+  const apiEntries = state.selectedEntries!.map(e => ({
+    title: e.title,
+    content: e.content,
+    intent: e.intent,
+    context: e.context,
+    reasoning: e.reasoning,
+    example: e.example,
+  }));
+
+  const requestBody = {
+    name: state.name,
+    description: state.description,
+    pricing: state.pricing,
+    consumption: state.consumption,
+    entries: apiEntries,
+    tags: state.tags || [],
+    license_type: state.license || 'personal',
+    attestation: {
+      original_work: true,
+      no_secrets: true,
+      terms_accepted: true,
+    },
+  };
+
+  try {
+    const response = await fetch(`${TELVOK_API_URL}/api/publish`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    const data = await response.json();
+    wizardState = null; // Clear state after attempt
+
+    if (!response.ok) {
+      if (data.error === 'stripe_connect_required') {
+        return {
+          success: false,
+          message: `Stripe Connect required to sell paid content.\n\nComplete setup at: ${data.setup_url}`,
+          setup_url: data.setup_url,
+        };
+      }
+      if (data.error === 'validation_error') {
+        const details = Object.entries(data.details || {})
+          .map(([k, v]) => `  - ${k}: ${v}`)
+          .join('\n');
+        return { success: false, message: `Validation failed:\n${details}` };
+      }
+      return { success: false, message: data.error || `Publish failed: HTTP ${response.status}` };
+    }
+
+    return {
+      success: true,
+      message: `✅ Published "${data.book?.name}" with ${data.entries_count} entries\n\n🔗 ${data.book?.url}`,
+      book: data.book,
+      entries_count: data.entries_count,
+    };
+  } catch (error) {
+    wizardState = null;
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Publish failed: ${message}`);
+  }
+}
 
 // ============================================================================
 // Entry Collection
@@ -463,7 +532,6 @@ async function collectLocalEntries(filter?: string[]): Promise<CollectedEntry[]>
     for (const filePath of files) {
       const filename = path.basename(filePath);
 
-      // If filter specified, only include matching files
       if (filter && filter.length > 0) {
         const matchesFilter = filter.some(f =>
           filename === f ||
@@ -478,10 +546,7 @@ async function collectLocalEntries(filter?: string[]): Promise<CollectedEntry[]>
         const content = await fs.readFile(filePath, 'utf-8');
         const parsed = parseEntryFile(content, filePath);
         if (parsed) {
-          entries.push({
-            ...parsed,
-            originalPath: filePath,
-          });
+          entries.push({ ...parsed, originalPath: filePath });
         }
       } catch {
         // Skip files that can't be parsed
@@ -500,21 +565,18 @@ function parseEntryFile(content: string, filePath: string): Omit<CollectedEntry,
 
   if (!trimmedBody) return null;
 
-  // Extract title from frontmatter, H1, or filename
   let title = frontmatter.title as string | undefined;
   if (!title) {
     const headingMatch = trimmedBody.match(/^#\s+(.+)$/m);
     if (headingMatch) {
       title = headingMatch[1].trim();
     } else {
-      // Use filename as title, converting hyphens to spaces
       title = path.basename(filePath, '.md')
         .replace(/-/g, ' ')
         .replace(/\b\w/g, l => l.toUpperCase());
     }
   }
 
-  // Extract sections from body
   const sections = extractSections(trimmedBody);
 
   return {
@@ -528,32 +590,20 @@ function parseEntryFile(content: string, filePath: string): Omit<CollectedEntry,
 }
 
 function extractSections(body: string): { main: string; reasoning?: string; example?: string } {
-  const result: { main: string; reasoning?: string; example?: string } = {
-    main: body,
-  };
+  const result: { main: string; reasoning?: string; example?: string } = { main: body };
 
-  // Find ## Reasoning section
   const reasoningMatch = body.match(/##\s*Reasoning\s*\n([\s\S]*?)(?=##|$)/i);
-  if (reasoningMatch) {
-    result.reasoning = reasoningMatch[1].trim();
-  }
+  if (reasoningMatch) result.reasoning = reasoningMatch[1].trim();
 
-  // Find ## Example section
   const exampleMatch = body.match(/##\s*Example\s*\n([\s\S]*?)(?=##|$)/i);
-  if (exampleMatch) {
-    result.example = exampleMatch[1].trim();
-  }
+  if (exampleMatch) result.example = exampleMatch[1].trim();
 
-  // Main content is everything after title until first ## section
   const mainMatch = body.match(/^#\s+.+\n\n?([\s\S]*?)(?=##|$)/);
   if (mainMatch) {
     result.main = mainMatch[1].trim();
   } else {
-    // If no H1 header, take content before first ## section
     const beforeSections = body.match(/^([\s\S]*?)(?=##)/);
-    if (beforeSections) {
-      result.main = beforeSections[1].trim();
-    }
+    if (beforeSections) result.main = beforeSections[1].trim();
   }
 
   return result;
