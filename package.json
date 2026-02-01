@@ -1,6 +1,6 @@
 {
   "name": "@telvok/librarian",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "description": "Knowledge capture for Claude Code and MCP clients",
   "main": "mcp/dist/server.js",
   "bin": {
