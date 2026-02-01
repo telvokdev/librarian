@@ -17,6 +17,7 @@ import { librarySearchTool } from './tools/library-search.js';
 import { libraryBuyTool } from './tools/library-buy.js';
 import { libraryDownloadTool } from './tools/library-download.js';
 import { libraryPublishTool } from './tools/library-publish.js';
+import { libraryUnpublishTool } from './tools/library-unpublish.js';
 import { myBooksTool } from './tools/my-books.js';
 import { syncTool } from './tools/sync.js';
 import { sellerAnalyticsTool } from './tools/seller-analytics.js';
@@ -68,7 +69,8 @@ const allTools: ToolEntry[] = [
   { tool: librarySearchTool,   group: 'marketplace' },
   { tool: libraryBuyTool,      group: 'marketplace' },
   { tool: libraryDownloadTool, group: 'marketplace' },
-  { tool: libraryPublishTool,  group: 'marketplace' },
+  { tool: libraryPublishTool,    group: 'marketplace' },
+  { tool: libraryUnpublishTool,  group: 'marketplace' },
   { tool: myBooksTool,         group: 'marketplace' },
   { tool: syncTool,            group: 'marketplace' },
   { tool: sellerAnalyticsTool, group: 'marketplace' },
