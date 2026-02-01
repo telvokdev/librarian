@@ -375,14 +375,18 @@ If the user says "publish my entries" — call library_publish() with NO args to
           if (result.includes('Publish')) {
             confirmMethod = 'dialog_confirmed';
           }
-        } catch {
-          // User clicked Cancel or osascript failed — fall through to code method
-          confirmMethod = 'dialog_cancelled';
+        } catch (err: unknown) {
+          // osascript exit code 1 = user clicked Cancel
+          // anything else = osascript couldn't run (sandbox, permissions, etc.) — fall through to code
+          const isUserCancel = err instanceof Error && 'status' in err && (err as { status: number }).status === 1;
+          if (isUserCancel) {
+            confirmMethod = 'dialog_cancelled';
+          }
+          // else confirmMethod stays 'code'
         }
       }
 
       if (confirmMethod === 'dialog_confirmed') {
-        // User confirmed via native dialog — publish immediately
         return await executePublish(wizardState);
       }
 

@@ -163,12 +163,17 @@ Show the preview details and wait for user confirmation.`,
         if (result.includes('Delete')) {
           return await executeUnpublish(slug, apiKey);
         }
-      } catch {
-        // User clicked Cancel or osascript failed
-        return {
-          success: false,
-          message: 'Unpublish cancelled.',
-        };
+      } catch (err: unknown) {
+        // osascript exit code 1 = user clicked Cancel
+        // anything else = osascript couldn't run — fall through to code method
+        const isUserCancel = err instanceof Error && 'status' in err && (err as { status: number }).status === 1;
+        if (isUserCancel) {
+          return {
+            success: false,
+            message: 'Unpublish cancelled.',
+          };
+        }
+        // fall through to confirmation code
       }
     }
 
