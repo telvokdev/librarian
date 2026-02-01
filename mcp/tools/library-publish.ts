@@ -5,6 +5,7 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { glob } from 'glob';
 import matter from 'gray-matter';
 import { loadApiKey } from './auth.js';
@@ -12,6 +13,22 @@ import { getLibraryPath, getLocalPath } from '../library/storage.js';
 import { scanForSensitiveData } from '../library/sensitive-scanner.js';
 
 const TELVOK_API_URL = process.env.TELVOK_API_URL || 'https://telvok.com';
+
+// ============================================================================
+// Publish Token Store
+// Preview generates a token. Publish requires it. Single-use, 5min expiry.
+// This prevents agents from publishing without user-reviewed preview.
+// ============================================================================
+
+interface PublishToken {
+  token: string;
+  name: string;
+  entries_count: number;
+  created: number;
+}
+
+const TOKEN_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
+let pendingPublish: PublishToken | null = null;
 
 // ============================================================================
 // Types
@@ -31,6 +48,7 @@ interface PublishArgs {
     terms_accepted: boolean;
   };
   preview?: boolean;
+  publish_token?: string;
   entries?: string[];
   tags?: string[];
   license?: 'open' | 'open_attributed' | 'personal';
@@ -49,6 +67,7 @@ interface CollectedEntry {
 interface PublishResult {
   success: boolean;
   message: string;
+  publish_token?: string;
   book?: {
     id?: string;
     slug: string;
@@ -76,25 +95,26 @@ interface PublishResult {
 export const libraryPublishTool = {
   name: 'library_publish',
   title: 'Publish Book',
-  description: `Publish local entries as a book on Telvok marketplace.
+  description: `Publish local entries as a book on Telvok library.
 
-USE THIS TOOL WHEN:
-- User wants to share/sell their recorded knowledge
-- User says "publish", "share", or "sell" their entries
-- Creating a book from .librarian/local/ entries
+⚠️ TWO-STEP PUBLISH FLOW (MANDATORY):
 
-ALWAYS use preview: true first to show what will be published.
+Step 1: ALWAYS call with preview: true first. This shows what will be published
+and returns a publish_token. Show the preview to the user and ASK FOR CONFIRMATION.
+
+Step 2: ONLY after the user explicitly confirms, call again with the publish_token
+from the preview response. Publishing WITHOUT a valid token will be rejected.
+
+DO NOT skip the preview. DO NOT publish without user confirmation.
+The tool will refuse to publish without a valid publish_token from a preview.
 
 TRIGGER PATTERNS:
 - "Publish my entries" → library_publish({ name: "...", pricing: { type: "open" }, preview: true })
-- "Sell my knowledge" → library_publish({ name: "...", pricing: { type: "one_time", price_cents: 500 }, preview: true })
-- After preview approval → add attestation and consumption, remove preview
-
-Required for actual publish: name, pricing, consumption, attestation (all true).
+- User says "yes, publish it" → library_publish({ ..., publish_token: "<token from preview>" })
 
 Examples:
 - Preview: library_publish({ name: "My Book", pricing: { type: "open" }, preview: true })
-- Publish: library_publish({ name: "My Book", pricing: { type: "open" }, consumption: "download", attestation: { original_work: true, no_secrets: true, terms_accepted: true } })`,
+- Publish: library_publish({ name: "My Book", pricing: { type: "open" }, consumption: "download", attestation: { original_work: true, no_secrets: true, terms_accepted: true }, publish_token: "abc123" })`,
 
   inputSchema: {
     type: 'object' as const,
@@ -140,7 +160,11 @@ Examples:
       },
       preview: {
         type: 'boolean',
-        description: 'If true, show what would be published without publishing',
+        description: 'If true, show what would be published without publishing. Returns a publish_token.',
+      },
+      publish_token: {
+        type: 'string',
+        description: 'Token from preview response. Required to actually publish. Single-use, expires in 5 minutes.',
       },
       entries: {
         type: 'array',
@@ -162,7 +186,7 @@ Examples:
   },
 
   async handler(args: unknown): Promise<PublishResult> {
-    const { name, description, pricing, consumption, attestation, preview, entries: entryFilter, tags, license } = args as PublishArgs;
+    const { name, description, pricing, consumption, attestation, preview, publish_token, entries: entryFilter, tags, license } = args as PublishArgs;
 
     // Validate name
     if (!name || typeof name !== 'string' || name.trim().length < 3) {
@@ -234,12 +258,21 @@ Examples:
       ? 'Free'
       : `$${((pricing.price_cents || 0) / 100).toFixed(2)}`;
 
-    // Handle preview mode - return summary without publishing
+    // Handle preview mode - return summary with publish token
     if (preview) {
+      const token = crypto.randomBytes(16).toString('hex');
+      pendingPublish = {
+        token,
+        name: name.trim(),
+        entries_count: collectedEntries.length,
+        created: Date.now(),
+      };
+
       return {
         success: true,
         preview: true,
-        message: `Preview of "${name.trim()}" - NOT published`,
+        message: `Preview of "${name.trim()}" - NOT published yet.\n\n⚠️ Show this to the user and ask for confirmation before publishing.`,
+        publish_token: token,
         summary: {
           name: name.trim(),
           pricing: { type: pricing.type, display: pricingDisplay },
@@ -249,9 +282,38 @@ Examples:
             file: path.basename(e.originalPath),
           })),
         },
-        next_steps: 'To publish, add consumption type and attestation fields.',
+        next_steps: 'Show preview to user. After they confirm, call library_publish() again with the publish_token to publish.',
       };
     }
+
+    // ========================================================================
+    // PUBLISH TOKEN VALIDATION
+    // Cannot publish without a valid token from preview
+    // ========================================================================
+    if (!publish_token) {
+      return {
+        success: false,
+        message: '🚫 Publishing requires a publish_token from a preview.\n\nYou must call library_publish({ preview: true, ... }) first, show the preview to the user, get their confirmation, then call again with the publish_token.\n\nThis is a safety measure to prevent accidental publishing.',
+      };
+    }
+
+    if (!pendingPublish || pendingPublish.token !== publish_token) {
+      return {
+        success: false,
+        message: '🚫 Invalid or expired publish_token. Run a new preview first with library_publish({ preview: true, ... }).',
+      };
+    }
+
+    if (Date.now() - pendingPublish.created > TOKEN_EXPIRY_MS) {
+      pendingPublish = null;
+      return {
+        success: false,
+        message: '🚫 Publish token expired (5 minute limit). Run a new preview first.',
+      };
+    }
+
+    // Token is valid — consume it (single use)
+    pendingPublish = null;
 
     // Validate consumption type (required for actual publish)
     if (!consumption) {
